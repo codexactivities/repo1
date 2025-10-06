@@ -1,0 +1,1156 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Small Steps, Big Wins | Carb Cycling Wellness Shop</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #f6f5f2;
+            --surface: #ffffff;
+            --surface-soft: rgba(255, 255, 255, 0.84);
+            --ink: #152420;
+            --muted: rgba(21, 36, 32, 0.65);
+            --primary: #4fb286;
+            --primary-dark: #215b45;
+            --accent: #f7b733;
+            --accent-dark: #b15b02;
+            --shadow-xl: 0 40px 80px rgba(19, 62, 44, 0.22);
+            --shadow-lg: 0 28px 58px rgba(19, 62, 44, 0.18);
+            --shadow-md: 0 18px 42px rgba(19, 62, 44, 0.12);
+            --shadow-soft: 0 16px 32px rgba(0, 0, 0, 0.12);
+            --radius-xl: 30px;
+            --radius-lg: 22px;
+            --radius-md: 16px;
+            --max-width: 1160px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Poppins', sans-serif;
+            background: var(--bg);
+            color: var(--ink);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        ::selection {
+            background: rgba(79, 178, 134, 0.35);
+            color: var(--ink);
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        img {
+            max-width: 100%;
+            display: block;
+        }
+
+        button {
+            font-family: inherit;
+        }
+
+        .page {
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        .container {
+            width: min(100%, var(--max-width));
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        nav {
+            position: sticky;
+            top: 0;
+            z-index: 40;
+            backdrop-filter: blur(24px);
+            background: rgba(246, 245, 242, 0.9);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.7);
+        }
+
+        .nav__inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 18px 0;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+        }
+
+        .brand__mark {
+            width: 44px;
+            height: 44px;
+            border-radius: 14px;
+            background: linear-gradient(140deg, rgba(79, 178, 134, 0.18), rgba(247, 183, 51, 0.28));
+            display: grid;
+            place-items: center;
+            font-weight: 700;
+            color: var(--primary-dark);
+        }
+
+        .nav__links {
+            display: flex;
+            gap: 26px;
+            font-size: 0.92rem;
+            color: var(--muted);
+        }
+
+        .nav__links a:hover {
+            color: var(--primary-dark);
+        }
+
+        .nav__cta {
+            padding: 12px 24px;
+            border-radius: 999px;
+            background: var(--primary);
+            color: #f6fff9;
+            font-size: 0.95rem;
+            font-weight: 600;
+            box-shadow: 0 20px 36px rgba(79, 178, 134, 0.28);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .nav__cta:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 24px 44px rgba(79, 178, 134, 0.32);
+        }
+
+        header {
+            position: relative;
+            min-height: 110vh;
+            display: grid;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        .hero__media {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(140deg, rgba(16, 32, 24, 0.65), rgba(16, 32, 24, 0.25) 48%, rgba(246, 245, 242, 0.62) 100%),
+                        url('https://images.unsplash.com/photo-1617367164585-2ebd5b3721d2?auto=format&fit=crop&w=2100&q=80') center/cover no-repeat;
+        }
+
+        .hero__overlay {
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at top left, rgba(247, 183, 51, 0.28), transparent 45%),
+                        radial-gradient(circle at bottom right, rgba(79, 178, 134, 0.32), transparent 55%);
+            mix-blend-mode: screen;
+        }
+
+        .hero__content {
+            position: relative;
+            z-index: 1;
+            padding: clamp(110px, 12vw, 160px) 0 120px;
+        }
+
+        .hero__grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: clamp(32px, 6vw, 60px);
+            align-items: end;
+        }
+
+        .hero__headline {
+            margin: 24px 0 14px;
+            font-size: clamp(3.1rem, 6vw, 4.8rem);
+            color: #f6fcf9;
+            letter-spacing: -0.035em;
+            text-transform: uppercase;
+            line-height: 1.05;
+        }
+
+        .hero__intro {
+            max-width: 520px;
+            color: rgba(241, 252, 246, 0.88);
+            font-size: 1.08rem;
+        }
+
+        .hero__tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 22px;
+            border-radius: 999px;
+            background: rgba(247, 183, 51, 0.92);
+            color: #412300;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            box-shadow: 0 26px 44px rgba(247, 183, 51, 0.36);
+        }
+
+        .hero__card {
+            background: var(--surface-soft);
+            backdrop-filter: blur(16px);
+            padding: 36px;
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-xl);
+            display: grid;
+            gap: 18px;
+        }
+
+        .hero__card h2 {
+            margin: 0;
+            font-size: 1.2rem;
+            color: var(--primary-dark);
+        }
+
+        .hero__list {
+            margin: 0;
+            padding-left: 20px;
+            color: var(--muted);
+            font-size: 0.96rem;
+        }
+
+        .hero__cta-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 18px 34px;
+            border-radius: 999px;
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+        }
+
+        .btn--primary {
+            background: linear-gradient(135deg, var(--primary) 0%, #61c698 100%);
+            color: #f4fff7;
+            box-shadow: 0 30px 58px rgba(52, 128, 94, 0.45);
+        }
+
+        .btn--primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 36px 68px rgba(52, 128, 94, 0.5);
+        }
+
+        .btn--ghost {
+            background: rgba(255, 255, 255, 0.18);
+            color: #f4fff7;
+            border: 1px solid rgba(244, 255, 249, 0.6);
+            box-shadow: 0 24px 44px rgba(0, 0, 0, 0.22);
+        }
+
+        .btn--ghost:hover {
+            background: rgba(255, 255, 255, 0.28);
+            transform: translateY(-3px);
+        }
+
+        .hero__proof {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 22px;
+            margin-top: 28px;
+            color: rgba(244, 255, 249, 0.85);
+            font-size: 0.95rem;
+        }
+
+        .proof-card {
+            padding: 18px 24px;
+            border-radius: var(--radius-lg);
+            background: rgba(18, 32, 24, 0.42);
+            min-width: 180px;
+        }
+
+        .proof-card strong {
+            display: block;
+            font-size: 1.7rem;
+            color: #f6fcf9;
+        }
+
+        main {
+            position: relative;
+            z-index: 2;
+            margin-top: -70px;
+        }
+
+        section {
+            padding: clamp(82px, 10vw, 140px) 0;
+        }
+
+        .section__eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 16px;
+            border-radius: 999px;
+            background: rgba(79, 178, 134, 0.12);
+            color: var(--primary-dark);
+            letter-spacing: 0.14em;
+            font-size: 0.82rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .section__headline {
+            margin: 20px 0 18px;
+            font-size: clamp(2.2rem, 4vw, 3.2rem);
+            line-height: 1.2;
+            max-width: 720px;
+        }
+
+        .section__lead {
+            max-width: 660px;
+            color: var(--muted);
+            font-size: 1.04rem;
+            margin-bottom: 48px;
+        }
+
+        .lit-card {
+            background: var(--surface);
+            border-radius: var(--radius-xl);
+            padding: clamp(44px, 6vw, 64px);
+            box-shadow: var(--shadow-lg);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .lit-card::before {
+            content: '';
+            position: absolute;
+            inset: -25% auto auto -25%;
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, rgba(79, 178, 134, 0.22), transparent 60%);
+        }
+
+        .lit-card::after {
+            content: '';
+            position: absolute;
+            inset: auto -20% -35% auto;
+            width: 240px;
+            height: 240px;
+            background: radial-gradient(circle, rgba(247, 183, 51, 0.22), transparent 62%);
+        }
+
+        .lit-card > * {
+            position: relative;
+            z-index: 1;
+        }
+
+        .pillars {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 26px;
+        }
+
+        .pillar {
+            background: rgba(255, 255, 255, 0.92);
+            border-radius: var(--radius-lg);
+            padding: 28px;
+            box-shadow: var(--shadow-md);
+            display: grid;
+            gap: 12px;
+            min-height: 220px;
+            transition: transform 0.35s ease, box-shadow 0.35s ease;
+        }
+
+        .pillar:hover {
+            transform: translateY(-6px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .pillar strong {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
+            background: rgba(79, 178, 134, 0.18);
+            color: var(--primary-dark);
+            font-weight: 600;
+        }
+
+        .pillar p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.94rem;
+        }
+
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 30px;
+        }
+
+        .product-card {
+            background: rgba(255, 255, 255, 0.94);
+            border-radius: var(--radius-xl);
+            padding: 28px;
+            box-shadow: var(--shadow-lg);
+            display: grid;
+            gap: 18px;
+            transition: transform 0.35s ease, box-shadow 0.35s ease;
+        }
+
+        .product-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 34px 70px rgba(19, 62, 44, 0.24);
+        }
+
+        .product-card__tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 14px;
+            border-radius: 999px;
+            background: rgba(79, 178, 134, 0.16);
+            color: var(--primary-dark);
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+        }
+
+        .product-card__img {
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            aspect-ratio: 3 / 4;
+            background: linear-gradient(180deg, rgba(79, 178, 134, 0.08), rgba(247, 183, 51, 0.1));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .product-card__list {
+            margin: 0;
+            padding-left: 18px;
+            color: var(--muted);
+            font-size: 0.94rem;
+        }
+
+        .product-card__price {
+            font-size: 1.18rem;
+            font-weight: 600;
+            color: var(--primary-dark);
+        }
+
+        .value-stack {
+            display: grid;
+            gap: 18px;
+            margin-top: 40px;
+        }
+
+        .value-item {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: 18px;
+            align-items: center;
+            padding: 18px 22px;
+            border-radius: var(--radius-lg);
+            background: rgba(255, 255, 255, 0.86);
+            box-shadow: var(--shadow-soft);
+        }
+
+        .value-item strong {
+            color: var(--primary-dark);
+        }
+        .value-item span:last-child {
+            font-weight: 600;
+            color: var(--accent-dark);
+        }
+
+        .timeline {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 24px;
+            margin-top: 40px;
+        }
+
+        .timeline-step {
+            background: var(--surface);
+            border-radius: var(--radius-lg);
+            padding: 26px;
+            box-shadow: var(--shadow-md);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .timeline-step::after {
+            content: '';
+            position: absolute;
+            inset: auto -20% -30% auto;
+            width: 160px;
+            height: 160px;
+            background: radial-gradient(circle, rgba(79, 178, 134, 0.16), transparent 62%);
+        }
+
+        .timeline-step strong {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(33, 91, 69, 0.15);
+            color: var(--primary-dark);
+            margin-bottom: 14px;
+        }
+
+        .timeline-step h3 {
+            margin: 0 0 10px;
+            font-size: 1.1rem;
+        }
+
+        .timeline-step p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.94rem;
+        }
+
+        .testimonials {
+            display: grid;
+            gap: 28px;
+        }
+
+        .testimonial-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 28px;
+        }
+
+        .testimonial-card {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: var(--radius-lg);
+            padding: 28px;
+            box-shadow: var(--shadow-soft);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .testimonial-card::before {
+            content: '"';
+            position: absolute;
+            top: 18px;
+            left: 22px;
+            font-size: 3.2rem;
+            color: rgba(79, 178, 134, 0.2);
+        }
+
+        .testimonial-card p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.96rem;
+        }
+
+        .testimonial-card strong {
+            display: block;
+            margin-top: 22px;
+            color: var(--ink);
+        }
+
+        .testimonial-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 18px;
+            border-radius: 999px;
+            background: rgba(33, 91, 69, 0.12);
+            color: var(--primary-dark);
+            font-size: 0.82rem;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .metrics-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-top: 36px;
+        }
+
+        .metric {
+            flex: 1;
+            min-width: 200px;
+            background: var(--surface);
+            border-radius: var(--radius-lg);
+            padding: 22px;
+            text-align: center;
+            box-shadow: var(--shadow-md);
+        }
+
+        .metric strong {
+            display: block;
+            font-size: 2.1rem;
+            color: var(--primary-dark);
+        }
+
+        .guarantee {
+            background: var(--surface);
+            border-radius: var(--radius-xl);
+            padding: clamp(48px, 6vw, 70px);
+            box-shadow: var(--shadow-lg);
+            display: grid;
+            gap: 24px;
+        }
+
+        .guarantee__top {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 32px;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .guarantee__seal {
+            width: 130px;
+            height: 130px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, rgba(79, 178, 134, 0.2), rgba(33, 91, 69, 0.35));
+            display: grid;
+            place-items: center;
+            color: var(--primary-dark);
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .guarantee ul {
+            margin: 0;
+            padding-left: 20px;
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+
+        .faq {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: var(--radius-xl);
+            padding: clamp(44px, 6vw, 68px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        details {
+            border-bottom: 1px solid rgba(21, 36, 32, 0.12);
+            padding: 20px 0;
+        }
+
+        details:last-of-type {
+            border-bottom: none;
+        }
+
+        summary {
+            cursor: pointer;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        summary::after {
+            content: '+';
+            font-size: 1.4rem;
+            color: var(--primary-dark);
+            transition: transform 0.3s ease;
+        }
+
+        details[open] summary::after {
+            transform: rotate(45deg);
+        }
+
+        details p {
+            margin: 12px 0 0;
+            color: var(--muted);
+        }
+
+        .closing {
+            text-align: center;
+            display: grid;
+            gap: 22px;
+            justify-items: center;
+        }
+
+        .closing .section__headline,
+        .closing .section__lead {
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .order-card {
+            margin-top: 30px;
+            background: var(--surface);
+            border-radius: var(--radius-xl);
+            padding: 32px;
+            box-shadow: var(--shadow-lg);
+            max-width: 520px;
+            display: grid;
+            gap: 16px;
+        }
+
+        .order-card__row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.96rem;
+        }
+
+        .order-card__total {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--primary-dark);
+        }
+
+        footer {
+            padding: 60px 0;
+            background: rgba(21, 36, 32, 0.06);
+        }
+
+        .footer__inner {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            color: rgba(21, 36, 32, 0.68);
+            font-size: 0.92rem;
+        }
+
+        .footer__links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 18px;
+        }
+
+        .floating-bar {
+            position: fixed;
+            inset: auto 24px 24px;
+            z-index: 50;
+            display: flex;
+            gap: 18px;
+            align-items: center;
+            padding: 18px 26px;
+            border-radius: 18px;
+            background: linear-gradient(135deg, var(--primary) 0%, #63c798 100%);
+            color: #f4fff9;
+            box-shadow: 0 34px 68px rgba(41, 110, 82, 0.35);
+        }
+
+        .floating-bar__price {
+            font-size: 1.18rem;
+            font-weight: 700;
+        }
+
+        .floating-bar button {
+            border: none;
+            border-radius: 999px;
+            padding: 12px 22px;
+            background: #f4fff9;
+            color: var(--primary-dark);
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.3s ease;
+        }
+
+        .floating-bar button:hover {
+            transform: translateY(-3px);
+        }
+
+        @media (max-width: 980px) {
+            .nav__links {
+                display: none;
+            }
+
+            .hero__grid {
+                align-items: stretch;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .hero__card {
+                padding: 28px;
+            }
+
+            .hero__cta-group {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .hero__proof {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .value-item {
+                grid-template-columns: 1fr;
+                text-align: left;
+            }
+
+            .floating-bar {
+                inset: auto 12px 12px;
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <nav>
+            <div class="container nav__inner">
+                <a class="brand" href="#top">
+                    <span class="brand__mark">SS</span>
+                    <span>Small Steps Studio</span>
+                </a>
+                <div class="nav__links">
+                    <a href="#method">Method</a>
+                    <a href="#collection">Collection</a>
+                    <a href="#proof">Results</a>
+                    <a href="#faq">FAQ</a>
+                </div>
+                <a class="nav__cta" href="#order">Grab the Bundle</a>
+            </div>
+        </nav>
+
+        <header id="top">
+            <div class="hero__media" role="img" aria-label="Smiling woman tying her running shoes on a sunlit city park path"></div>
+            <div class="hero__overlay"></div>
+            <div class="container hero__content">
+                <div class="hero__grid">
+                    <div>
+                        <span class="hero__tag">Mindful mornings &middot; Elevated fuel</span>
+                        <h1 class="hero__headline">Small Steps, Big Wins</h1>
+                        <p class="hero__intro">The photogenic carb cycling playbook designed for women who want radiant energy, sculpted strength, and calm control over cravings&mdash;without ever feeling like wellness is a full-time job.</p>
+                        <div class="hero__cta-group">
+                            <a class="btn btn--primary" href="#order">Unlock the 3-Book Bundle</a>
+                            <a class="btn btn--ghost" href="#method">See the Framework</a>
+                        </div>
+                        <div class="hero__proof">
+                            <div class="proof-card">
+                                <strong>12k+</strong>
+                                readers synced their nutrition with movement
+                            </div>
+                            <div class="proof-card">
+                                <strong>87%</strong>
+                                reported brighter energy within 14 days
+                            </div>
+                            <div class="proof-card">
+                                <strong>4.9/5</strong>
+                                average rating across the collection
+                            </div>
+                        </div>
+                    </div>
+                    <aside class="hero__card">
+                        <h2>Inside your instant start kit</h2>
+                        <ul class="hero__list">
+                            <li>Personalized carb rhythm worksheet so every week flows.</li>
+                            <li>Curated grocery lists and serene plate compositions.</li>
+                            <li>Audio mindfulness cues that keep you grounded on-the-go.</li>
+                        </ul>
+                        <p style="margin: 0; color: var(--muted); font-size: 0.92rem;">Plus: bonus habit tracker app and 30-day glow guarantee.</p>
+                    </aside>
+                </div>
+            </div>
+        </header>
+        <main>
+            <section id="method">
+                <div class="container">
+                    <div class="lit-card">
+                        <span class="section__eyebrow">Why it works</span>
+                        <h2 class="section__headline">A minimalist, hormone-aware rhythm that keeps you light on your feet and fueled for every feel-good run, flow, or lift.</h2>
+                        <p class="section__lead">Our system layers curated nutrition, mindful rituals, and concierge-level structure. No crash dieting. No calorie spreadsheets. Just a serene cadence that adapts to your life and helps you show up glowing.</p>
+                        <div class="pillars">
+                            <article class="pillar">
+                                <strong>01</strong>
+                                <h3>Glow-Day Mapping</h3>
+                                <p>Dial in high and low carb days around your workouts, recovery windows, and hormone phases so energy never dips.</p>
+                            </article>
+                            <article class="pillar">
+                                <strong>02</strong>
+                                <h3>Plate Architecture</h3>
+                                <p>Seasonal recipes, grocery grids, and color-balanced plating guidance keep every meal photogenic and purposeful.</p>
+                            </article>
+                            <article class="pillar">
+                                <strong>03</strong>
+                                <h3>Mindful Momentum</h3>
+                                <p>Affirmations, journaling prompts, and breath cues cultivate the mindset of a woman in motion&mdash;calm, confident, consistent.</p>
+                            </article>
+                            <article class="pillar">
+                                <strong>04</strong>
+                                <h3>Accountability Whisper</h3>
+                                <p>Weekly review dashboards and subtle reminders nudge you just enough to keep your streak alive without pressure.</p>
+                            </article>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="collection">
+                <div class="container">
+                    <span class="section__eyebrow">Shop the collection</span>
+                    <h2 class="section__headline">Three cinematic eBooks crafted to guide every phase of your carb cycling evolution.</h2>
+                    <p class="section__lead">Mix and match or go all in with the bundle. Every title delivers upscale design, science-backed strategy, and a calm voice that makes change feel luxurious.</p>
+                    <div class="product-grid">
+                        <article class="product-card">
+                            <span class="product-card__tag">Start Here</span>
+                            <div class="product-card__img">
+                                <img src="https://m.media-amazon.com/images/I/91Z7Kquc2TL.SL1500.jpg" alt="Carb Cycling Basics ebook cover" loading="lazy">
+                            </div>
+                            <h3>Carb Cycling Basics</h3>
+                            <p>Understand the science, build your rhythm, and create the first seven days of serene, carb-smart living.</p>
+                            <ul class="product-card__list">
+                                <li>Macro rhythm planner with plug-and-play templates.</li>
+                                <li>7-day photogenic menu with paired grocery lists.</li>
+                                <li>Morning &amp; evening rituals to anchor your new flow.</li>
+                            </ul>
+                            <div class="product-card__price">$29</div>
+                            <button class="btn btn--primary" type="button">Add Basics to Cart</button>
+                        </article>
+                        <article class="product-card">
+                            <span class="product-card__tag">Female Physiology</span>
+                            <div class="product-card__img">
+                                <img src="https://m.media-amazon.com/images/I/810f6DjvbvL.SL1500.jpg" alt="Carb Cycling for Women ebook cover" loading="lazy">
+                            </div>
+                            <h3>Carb Cycling for Women</h3>
+                            <p>Sync fuel with your cycle, soothe cravings, and feel grounded in every phase with hormone-aware meal matrices.</p>
+                            <ul class="product-card__list">
+                                <li>Four-phase cycle overlays with training pairings.</li>
+                                <li>Craving calmers, adaptogen pairings, and snack swaps.</li>
+                                <li>Weekly mood journals to spot patterns and wins.</li>
+                            </ul>
+                            <div class="product-card__price">$39</div>
+                            <button class="btn btn--primary" type="button">Add Women's Guide</button>
+                        </article>
+                        <article class="product-card" style="background: linear-gradient(135deg, rgba(33, 91, 69, 0.95), rgba(79, 178, 134, 0.95)); color: #f4fff9;">
+                            <span class="product-card__tag" style="background: rgba(247, 183, 51, 0.85); color: #3c2300;">Most Loved Bundle</span>
+                            <h3>Carb Cycling Bundle</h3>
+                            <p>Unlock all three guides plus exclusive bonuses that turn mindful fueling into your easiest habit of the year.</p>
+                            <ul class="product-card__list" style="color: rgba(244, 255, 249, 0.85);">
+                                <li>Seasonal meal plan vault with quarterly refreshes.</li>
+                                <li>Guided audio affirmations and habit tracker app.</li>
+                                <li>Private community, Q&amp;A library, and lifetime updates.</li>
+                            </ul>
+                            <div class="product-card__price" style="color: #fdfcf5;">$79 <span style="font-size: 0.85rem; font-weight: 400;">(Save $28)</span></div>
+                            <button class="btn" type="button" style="background: #f4fff9; color: var(--primary-dark);">Add Bundle to Cart</button>
+                        </article>
+                    </div>
+
+                    <div class="value-stack">
+                        <div class="value-item">
+                            <span style="font-weight: 600; color: var(--primary-dark);">Immediate start kit</span>
+                            <span>Download links, welcome walkthrough, and rhythm worksheet delivered in under 60 seconds.</span>
+                            <span>$129 value</span>
+                        </div>
+                        <div class="value-item">
+                            <span style="font-weight: 600; color: var(--primary-dark);">Habit tracker app</span>
+                            <span>Daily check-ins, gentle reminders, and streak tracking to keep micro wins stacking.</span>
+                            <span>$59 value</span>
+                        </div>
+                        <div class="value-item">
+                            <span style="font-weight: 600; color: var(--primary-dark);">Community access</span>
+                            <span>Join mindful movers, attend live Q&amp;As, and swap grocery finds without social media noise.</span>
+                            <span>$99 value</span>
+                        </div>
+                        <div class="value-item">
+                            <span style="font-weight: 600; color: var(--primary-dark);">30-day glow guarantee</span>
+                            <span>Feel the difference or we refund you, no hoops, no awkward questions.</span>
+                            <span>Priceless</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <div class="container">
+                    <span class="section__eyebrow">Your first month</span>
+                    <h2 class="section__headline">Follow the glow timeline to lock in momentum without overwhelm.</h2>
+                    <div class="timeline">
+                        <article class="timeline-step">
+                            <strong>Week 1</strong>
+                            <h3>Map &amp; prime</h3>
+                            <p>Set your carb rhythm, stock the essentials, and ease into mindful breakfasts that light up your mornings.</p>
+                        </article>
+                        <article class="timeline-step">
+                            <strong>Week 2</strong>
+                            <h3>Align &amp; flow</h3>
+                            <p>Pair high-energy days with sculpted training, coast through recovery days, and log micro wins in the app.</p>
+                        </article>
+                        <article class="timeline-step">
+                            <strong>Week 3</strong>
+                            <h3>Refine &amp; personalize</h3>
+                            <p>Use the mood journal prompts to tweak meals, address cravings gracefully, and anchor new rituals.</p>
+                        </article>
+                        <article class="timeline-step">
+                            <strong>Week 4</strong>
+                            <h3>Celebrate &amp; scale</h3>
+                            <p>Stack seasonal plans, explore the coaching vault, and lock in an effortless cycle that feels like second nature.</p>
+                        </article>
+                    </div>
+                </div>
+            </section>
+
+            <section id="proof">
+                <div class="container testimonials">
+                    <div>
+                        <span class="testimonial-badge">Loved by 12,000+ mindful movers</span>
+                        <h2 class="section__headline">Proof from women who swapped burnout for bright, breathable energy.</h2>
+                        <p class="section__lead">These are the messages that land in our inbox every week. Real women, real schedules, real glow-ups.</p>
+                    </div>
+                    <div class="testimonial-grid">
+                        <article class="testimonial-card">
+                            <p>&ldquo;Within two weeks my afternoon crash vanished. The bundle&rsquo;s visual planners make fueling feel like art, and the audio prompts keep me calm when life spins.&rdquo;</p>
+                            <strong>Alyssa M. &middot; Creative Director &amp; Marathoner</strong>
+                        </article>
+                        <article class="testimonial-card">
+                            <p>&ldquo;I finally understand how to eat with my cycle. The women&rsquo;s guide gives me a plan that honors hormones, so I show up strong for my clients and soft with myself.&rdquo;</p>
+                            <strong>Emily R. &middot; Founder, Studio 28</strong>
+                        </article>
+                        <article class="testimonial-card">
+                            <p>&ldquo;The bundle feels luxury. From the imagery to the weekly checklists, it&rsquo;s like checking into a boutique wellness retreat each Sunday night.&rdquo;</p>
+                            <strong>Kara P. &middot; Holistic Coach</strong>
+                        </article>
+                    </div>
+                    <div class="metrics-bar">
+                        <div class="metric">
+                            <strong>92%</strong>
+                            stay consistent for 6+ weeks
+                        </div>
+                        <div class="metric">
+                            <strong>3&times;</strong>
+                            increase in mindful movement sessions
+                        </div>
+                        <div class="metric">
+                            <strong>2 hrs</strong>
+                            average weekly meal prep time saved
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <div class="container guarantee">
+                    <div class="guarantee__top">
+                        <div>
+                            <span class="section__eyebrow">Risk-free glow</span>
+                            <h2 class="section__headline">Feel brighter mornings in 30 days or your investment returns to you&mdash;no hoops, no guilt.</h2>
+                        </div>
+                        <div class="guarantee__seal">30 Day<br>Promise</div>
+                    </div>
+                    <p class="section__lead" style="margin-bottom: 18px;">We built this system with registered dietitians, mindset coaches, and real women juggling careers, families, and training. Show up, log your glow-days, and if you still feel flat, email us within 30 days. We will refund you and offer a complimentary rhythm audit.</p>
+                    <ul>
+                        <li>Keep the planners, recipes, and audio guides&mdash;they are our thank-you.</li>
+                        <li>Access a one-time support call to troubleshoot carb timing.</li>
+                        <li>We answer every message within 24 hours, human to human.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section id="faq">
+                <div class="container faq">
+                    <span class="section__eyebrow">FAQ</span>
+                    <h2 class="section__headline">Everything you are asking before you lace up and press download.</h2>
+                    <details>
+                        <summary>How quickly do I get access after ordering?</summary>
+                        <p>Instantly. Your receipt email includes download links, onboarding video, and app invite so you can map your first glow-day tonight.</p>
+                    </details>
+                    <details>
+                        <summary>Do I need intense workouts for this to work?</summary>
+                        <p>No. The rhythm adapts to yoga, strength, running, or mindful walks. We show you how to align carbs with whatever movement keeps you joyful.</p>
+                    </details>
+                    <details>
+                        <summary>Is the bundle beginner-friendly?</summary>
+                        <p>Absolutely. We explain every phrase, offer starter swaps, and include a medical advisory checklist so you can loop in your healthcare team.</p>
+                    </details>
+                    <details>
+                        <summary>What if I am plant-based or gluten-free?</summary>
+                        <p>You get dedicated swap guides, pantry lists, and portion cues for plant-based, gluten-free, and dairy-light lifestyles.</p>
+                    </details>
+                    <details>
+                        <summary>Will I receive future updates?</summary>
+                        <p>Bundle members receive lifetime updates, seasonal menus, and surprise audio drops. We refresh the library quarterly.</p>
+                    </details>
+                </div>
+            </section>
+
+            <section id="order">
+                <div class="container closing">
+                    <span class="section__eyebrow">Ready when you are</span>
+                    <h2 class="section__headline">Let mindful fuel, cinematic visuals, and concierge-level structure carry you into your most radiant season yet.</h2>
+                    <p class="section__lead">Step into the bundle for instant access, premium bonuses, and a confidence-boosting roadmap that sells itself every time you open it.</p>
+                    <a class="btn btn--primary" href="#order">
+                        Yes, I Want the Glow Bundle
+                    </a>
+                    <small style="color: var(--muted);">Secure checkout &middot; Instant delivery &middot; 30-day glow guarantee</small>
+                    <div class="order-card">
+                        <div class="order-card__row">
+                            <span>Carb Cycling Bundle</span>
+                            <span>$79</span>
+                        </div>
+                        <div class="order-card__row">
+                            <span>Bonus habit tracker app</span>
+                            <span>Included</span>
+                        </div>
+                        <div class="order-card__row">
+                            <span>Seasonal meal plan vault</span>
+                            <span>Included</span>
+                        </div>
+                        <div class="order-card__row">
+                            <span>Community access + Q&amp;A library</span>
+                            <span>Included</span>
+                        </div>
+                        <div class="order-card__row order-card__total">
+                            <span>Today&rsquo;s total</span>
+                            <span>$79</span>
+                        </div>
+                        <button class="btn btn--primary" type="button" style="width: 100%;">Add Bundle to Cart</button>
+                        <small style="color: var(--muted);">Instant digital access on desktop, tablet, and mobile.</small>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <div class="container footer__inner">
+                <strong>Small Steps Studio</strong>
+                <span>Mindful carb cycling guides crafted for women who want to move with intention, eat with ease, and glow with confidence.</span>
+                <div class="footer__links">
+                    <a href="#method">Method</a>
+                    <a href="#collection">Collection</a>
+                    <a href="#proof">Results</a>
+                    <a href="mailto:hello@smallstepsstudio.com">Support</a>
+                </div>
+                <small>&copy; <span id="year"></span> Small Steps Studio &middot; All rights reserved</small>
+            </div>
+        </footer>
+
+        <aside class="floating-bar" aria-label="Sticky checkout shortcut">
+            <span class="floating-bar__price">Carb Cycling Bundle &middot; $79</span>
+            <button type="button" onclick="document.querySelector('#order').scrollIntoView({ behavior: 'smooth' });">Add Bundle to Cart</button>
+        </aside>
+    </div>
+
+    <script>
+        document.getElementById('year').textContent = new Date().getFullYear();
+    </script>
+</body>
+</html>
+
