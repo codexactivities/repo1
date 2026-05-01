@@ -1,44 +1,72 @@
+"""Build a high-density, practical prompt engineering presentation."""
 from pptx import Presentation
-from pptx.util import Inches, Pt
+from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
-from pptx.enum.text import PP_ALIGN
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 
-# Color palette
-BG_DARK = RGBColor(0x0F, 0x14, 0x1E)
-ACCENT = RGBColor(0xFF, 0x6B, 0x35)
-ACCENT2 = RGBColor(0x4E, 0xCD, 0xC4)
-TEXT_LIGHT = RGBColor(0xF5, 0xF5, 0xF5)
-TEXT_MUTED = RGBColor(0xB0, 0xB8, 0xC4)
-CARD = RGBColor(0x1B, 0x23, 0x33)
+# Palette
+BG = RGBColor(0x0E, 0x12, 0x1B)
+PANEL = RGBColor(0x18, 0x1F, 0x2E)
+PANEL2 = RGBColor(0x22, 0x2B, 0x3D)
+ACCENT = RGBColor(0xFF, 0x7A, 0x3D)        # warm orange
+ACCENT2 = RGBColor(0x4E, 0xCD, 0xC4)       # teal
+GOOD = RGBColor(0x6E, 0xE7, 0xB7)
+BAD = RGBColor(0xE8, 0x6A, 0x6A)
+TEXT = RGBColor(0xF2, 0xF4, 0xF8)
+MUTED = RGBColor(0x9A, 0xA4, 0xB8)
+CODE_BG = RGBColor(0x0A, 0x0E, 0x16)
 
 prs = Presentation()
 prs.slide_width = Inches(13.333)
 prs.slide_height = Inches(7.5)
-
 BLANK = prs.slide_layouts[6]
 
 
-def set_bg(slide, color=BG_DARK):
-    bg = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
-    bg.line.fill.background()
-    bg.fill.solid()
-    bg.fill.fore_color.rgb = color
-    bg.shadow.inherit = False
-    return bg
+def bg(slide, color=BG):
+    r = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
+    r.line.fill.background()
+    r.fill.solid()
+    r.fill.fore_color.rgb = color
+    r.shadow.inherit = False
+    return r
 
 
-def add_text(slide, left, top, width, height, text, size=18, bold=False,
-             color=TEXT_LIGHT, align=PP_ALIGN.LEFT, font="Calibri"):
+def card(slide, left, top, width, height, color=PANEL, radius=0.06):
+    c = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left, top, width, height)
+    c.adjustments[0] = radius
+    c.line.fill.background()
+    c.fill.solid()
+    c.fill.fore_color.rgb = color
+    c.shadow.inherit = False
+    return c
+
+
+def bar(slide, left, top, width, height, color=ACCENT):
+    b = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
+    b.line.fill.background()
+    b.fill.solid()
+    b.fill.fore_color.rgb = color
+    b.shadow.inherit = False
+    return b
+
+
+def text(slide, left, top, width, height, content, *,
+         size=16, bold=False, color=TEXT, align=PP_ALIGN.LEFT,
+         font="Calibri", anchor=MSO_ANCHOR.TOP, line_spacing=1.15):
     tb = slide.shapes.add_textbox(left, top, width, height)
     tf = tb.text_frame
     tf.word_wrap = True
-    tf.margin_left = Inches(0.05)
-    tf.margin_right = Inches(0.05)
-    lines = text.split("\n") if isinstance(text, str) else text
+    tf.margin_left = Inches(0.08)
+    tf.margin_right = Inches(0.08)
+    tf.margin_top = Inches(0.04)
+    tf.margin_bottom = Inches(0.04)
+    tf.vertical_anchor = anchor
+    lines = content.split("\n") if isinstance(content, str) else content
     for i, line in enumerate(lines):
         p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
         p.alignment = align
+        p.line_spacing = line_spacing
         run = p.add_run()
         run.text = line
         run.font.size = Pt(size)
@@ -48,394 +76,533 @@ def add_text(slide, left, top, width, height, text, size=18, bold=False,
     return tb
 
 
-def add_card(slide, left, top, width, height, color=CARD):
-    card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left, top, width, height)
-    card.adjustments[0] = 0.08
-    card.line.fill.background()
-    card.fill.solid()
-    card.fill.fore_color.rgb = color
-    card.shadow.inherit = False
-    return card
-
-
-def add_accent_bar(slide, left, top, width=Inches(0.12), height=Inches(0.6), color=ACCENT):
-    bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
-    bar.line.fill.background()
-    bar.fill.solid()
-    bar.fill.fore_color.rgb = color
-    bar.shadow.inherit = False
-    return bar
-
-
-def slide_header(slide, title, num=None):
-    add_accent_bar(slide, Inches(0.5), Inches(0.45), Inches(0.12), Inches(0.55))
-    add_text(slide, Inches(0.75), Inches(0.4), Inches(10), Inches(0.7),
-             title, size=30, bold=True, color=TEXT_LIGHT)
+def header(slide, title, num=None):
+    bar(slide, Inches(0.5), Inches(0.45), Inches(0.14), Inches(0.55), ACCENT)
+    text(slide, Inches(0.78), Inches(0.38), Inches(10.4), Inches(0.7),
+         title, size=28, bold=True, color=TEXT, anchor=MSO_ANCHOR.MIDDLE)
     if num:
-        add_text(slide, Inches(11.5), Inches(0.4), Inches(1.3), Inches(0.7),
-                 num, size=28, bold=True, color=ACCENT, align=PP_ALIGN.RIGHT)
-    line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.5), Inches(1.15), Inches(12.3), Pt(1.5))
+        text(slide, Inches(11.3), Inches(0.38), Inches(1.55), Inches(0.7),
+             num, size=22, bold=True, color=ACCENT, align=PP_ALIGN.RIGHT,
+             anchor=MSO_ANCHOR.MIDDLE)
+    line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE,
+                                   Inches(0.5), Inches(1.18),
+                                   Inches(12.3), Emu(12700))
     line.line.fill.background()
     line.fill.solid()
     line.fill.fore_color.rgb = ACCENT2
     line.shadow.inherit = False
 
 
-# ======================== SLIDE 1: TITLE ========================
+def code_box(slide, left, top, width, height, content, *, label=None,
+             label_color=ACCENT2, size=12):
+    card(slide, left, top, width, height, color=CODE_BG, radius=0.04)
+    inner_top = top + Inches(0.15)
+    if label:
+        text(slide, left + Inches(0.2), top + Inches(0.08),
+             width - Inches(0.4), Inches(0.3),
+             label, size=11, bold=True, color=label_color, font="Consolas")
+        inner_top = top + Inches(0.42)
+    text(slide, left + Inches(0.2), inner_top,
+         width - Inches(0.4), height - (inner_top - top) - Inches(0.1),
+         content, size=size, color=TEXT, font="Consolas", line_spacing=1.2)
+
+
+# ============================================================
+# SLIDE 1 — TITLE
+# ============================================================
 s = prs.slides.add_slide(BLANK)
-set_bg(s)
+bg(s)
 
-# Decorative shapes
-deco = s.shapes.add_shape(MSO_SHAPE.OVAL, Inches(-2), Inches(-2), Inches(5), Inches(5))
-deco.line.fill.background()
-deco.fill.solid()
-deco.fill.fore_color.rgb = ACCENT
-deco.shadow.inherit = False
+# big abstract decoration
+o1 = s.shapes.add_shape(MSO_SHAPE.OVAL, Inches(-3), Inches(-3), Inches(7), Inches(7))
+o1.line.fill.background(); o1.fill.solid(); o1.fill.fore_color.rgb = ACCENT
+o1.shadow.inherit = False
+o2 = s.shapes.add_shape(MSO_SHAPE.OVAL, Inches(10.5), Inches(4.5), Inches(6), Inches(6))
+o2.line.fill.background(); o2.fill.solid(); o2.fill.fore_color.rgb = ACCENT2
+o2.shadow.inherit = False
+o3 = s.shapes.add_shape(MSO_SHAPE.OVAL, Inches(2), Inches(5), Inches(2.5), Inches(2.5))
+o3.line.fill.background(); o3.fill.solid(); o3.fill.fore_color.rgb = PANEL2
+o3.shadow.inherit = False
 
-deco2 = s.shapes.add_shape(MSO_SHAPE.OVAL, Inches(10), Inches(5), Inches(5), Inches(5))
-deco2.line.fill.background()
-deco2.fill.solid()
-deco2.fill.fore_color.rgb = ACCENT2
-deco2.shadow.inherit = False
+text(s, Inches(0.9), Inches(2.1), Inches(11.5), Inches(0.5),
+     "PROMPT ENGINEERING", size=16, bold=True, color=ACCENT2)
+text(s, Inches(0.9), Inches(2.6), Inches(11.5), Inches(1.6),
+     "Малоизвестные техники,\nкоторые реально работают",
+     size=46, bold=True, color=TEXT, line_spacing=1.05)
+text(s, Inches(0.9), Inches(5.1), Inches(11.5), Inches(0.6),
+     "12 приёмов с примерами «до / после» и объяснением, почему они работают",
+     size=18, color=MUTED)
+text(s, Inches(0.9), Inches(6.6), Inches(11.5), Inches(0.4),
+     "2026", size=13, color=MUTED)
 
-add_text(s, Inches(1), Inches(2.4), Inches(11.5), Inches(1.2),
-         "Тёмная сторона промт-инженеринга",
-         size=54, bold=True, color=TEXT_LIGHT)
-add_text(s, Inches(1), Inches(3.7), Inches(11.5), Inches(0.8),
-         "Невероятно эффективные, но малоизвестные техники",
-         size=26, color=ACCENT2)
-add_text(s, Inches(1), Inches(6.4), Inches(11.5), Inches(0.5),
-         "Практическое руководство  ·  2026",
-         size=16, color=TEXT_MUTED)
 
-# ======================== SLIDE 2: AGENDA ========================
+# ============================================================
+# SLIDE 2 — TOC
+# ============================================================
 s = prs.slides.add_slide(BLANK)
-set_bg(s)
-slide_header(s, "Что внутри")
+bg(s)
+header(s, "Содержание")
 
-agenda = [
-    ("01", "Почему «дай хороший промт» больше не работает"),
-    ("02", "Meta-prompting: пусть модель пишет промт сама"),
-    ("03", "Self-Consistency и Tree-of-Thought"),
-    ("04", "Контрастные пары и негативные примеры"),
-    ("05", "Role-Persona-Task-Format (RPTF)"),
-    ("06", "Least-to-Most и декомпозиция"),
-    ("07", "Скрытые управляющие токены и анкеры"),
-    ("08", "Калибровка через self-critique"),
-    ("09", "Чек-лист и шпаргалка"),
+items = [
+    ("01", "Prefilling", "Начните ответ за модель"),
+    ("02", "Recency anchoring", "Главное — в конец промта"),
+    ("03", "Re-read", "Заставьте модель перечитать задачу"),
+    ("04", "Quantity → Quality", "20 идей, потом топ-3"),
+    ("05", "Anti-sycophancy", "Отключаем подхалимство"),
+    ("06", "Structured XML", "Теги вместо тройных кавычек"),
+    ("07", "Negative few-shot", "Покажите, как НЕ надо"),
+    ("08", "Chain of Density", "Сжатие без потерь"),
+    ("09", "Self-ask", "Декомпозиция на под-вопросы"),
+    ("10", "Reverse prompting", "Реверс-инжиниринг идеала"),
+    ("11", "Explicit uncertainty", "Разрешите «не знаю»"),
+    ("12", "Temperature по задаче", "0 — извлечение, 0.7 — идеи"),
 ]
+for i, (n, name, desc) in enumerate(items):
+    col = i % 3
+    row = i // 3
+    left = Inches(0.55 + col * 4.18)
+    top = Inches(1.45 + row * 1.42)
+    card(s, left, top, Inches(4.0), Inches(1.25))
+    text(s, left + Inches(0.25), top + Inches(0.15), Inches(1.2), Inches(0.4),
+         n, size=14, bold=True, color=ACCENT)
+    text(s, left + Inches(0.25), top + Inches(0.45), Inches(3.6), Inches(0.45),
+         name, size=16, bold=True, color=TEXT)
+    text(s, left + Inches(0.25), top + Inches(0.78), Inches(3.6), Inches(0.45),
+         desc, size=12, color=MUTED)
 
-for i, (num, text) in enumerate(agenda):
-    col = i % 2
-    row = i // 2
-    left = Inches(0.7 + col * 6.2)
-    top = Inches(1.5 + row * 0.95)
-    add_card(s, left, top, Inches(5.9), Inches(0.8))
-    add_text(s, left + Inches(0.2), top + Inches(0.18), Inches(0.8), Inches(0.5),
-             num, size=20, bold=True, color=ACCENT)
-    add_text(s, left + Inches(1.0), top + Inches(0.2), Inches(4.8), Inches(0.5),
-             text, size=15, color=TEXT_LIGHT)
+
+# ============================================================
+# Helper for technique slides: title + why-it-works + before/after code
+# ============================================================
+def technique_slide(num, title, hook, why, before, after,
+                    before_label="✕ обычный промт",
+                    after_label="✓ улучшенный промт"):
+    s = prs.slides.add_slide(BLANK)
+    bg(s)
+    header(s, title, num)
+
+    # Hook (one-liner takeaway)
+    text(s, Inches(0.55), Inches(1.32), Inches(12.3), Inches(0.5),
+         hook, size=16, color=ACCENT2, bold=True)
+
+    # Why-it-works strip
+    card(s, Inches(0.55), Inches(1.85), Inches(12.3), Inches(0.85), PANEL2)
+    text(s, Inches(0.8), Inches(1.92), Inches(0.9), Inches(0.7),
+         "ПОЧЕМУ", size=11, bold=True, color=ACCENT,
+         anchor=MSO_ANCHOR.MIDDLE)
+    text(s, Inches(1.85), Inches(1.92), Inches(10.8), Inches(0.7),
+         why, size=14, color=TEXT, anchor=MSO_ANCHOR.MIDDLE)
+
+    # Before
+    code_box(s, Inches(0.55), Inches(2.95), Inches(6.05), Inches(4.3),
+             before, label=before_label, label_color=BAD, size=12)
+    # After
+    code_box(s, Inches(6.73), Inches(2.95), Inches(6.07), Inches(4.3),
+             after, label=after_label, label_color=GOOD, size=12)
+    return s
 
 
-# ======================== SLIDE 3: WHY ========================
+# ============================================================
+# SLIDE 3 — PREFILLING
+# ============================================================
+technique_slide(
+    "01",
+    "Prefilling: начните ответ за модель",
+    "Один из самых недооценённых трюков. Работает в Claude API, OpenAI (через assistant prefix), локальных моделях.",
+    "Модель продолжает паттерн. Если вы начали ответ с «{», она продолжит JSON. Если с «1.» — продолжит список. Преамбулы и оправдания исчезают.",
+    'user: "Извлеки имя и email из текста. Верни JSON."\n'
+    "user: <text>...</text>\n\n"
+    "→ assistant:\n"
+    "  Конечно! Вот извлечённые данные\n"
+    "  в формате JSON:\n"
+    "  ```json\n"
+    '  {"name": "...", "email": "..."}\n'
+    "  ```",
+    'user: "Извлеки имя и email. Верни JSON."\n'
+    "user: <text>...</text>\n"
+    "assistant: {\n\n"
+    "→ модель продолжает:\n"
+    '  "name": "Анна Петрова",\n'
+    '  "email": "anna@example.com"\n'
+    "  }\n\n"
+    "Без болтовни. Парсится сразу.",
+)
+
+
+# ============================================================
+# SLIDE 4 — RECENCY ANCHORING
+# ============================================================
+technique_slide(
+    "02",
+    "Recency anchoring: главное — в конец",
+    "В длинном промте модель сильнее всего «слышит» последние инструкции.",
+    "У трансформеров recency bias: при длинном контексте середина теряется (lost-in-the-middle). Последние токены влияют на ответ непропорционально сильно.",
+    "[2000 токенов системного промта]\n"
+    "[10 примеров few-shot]\n"
+    "[документ на 5000 токенов]\n\n"
+    "В системе сказано:\n"
+    '"Отвечай только на русском, ≤ 200 слов."\n\n'
+    "→ Модель отвечает на английском\n"
+    "  и пишет 600 слов. Инструкция\n"
+    "  утонула в начале.",
+    "[2000 токенов системного промта]\n"
+    "[10 примеров few-shot]\n"
+    "[документ на 5000 токенов]\n\n"
+    "В САМОМ КОНЦЕ user-сообщения:\n"
+    '"Напомню ключевые правила:\n'
+    " 1) только русский язык\n"
+    ' 2) не более 200 слов."\n\n'
+    "→ Соблюдает оба правила.",
+)
+
+
+# ============================================================
+# SLIDE 5 — RE-READ
+# ============================================================
+technique_slide(
+    "03",
+    "Re-read: заставьте модель перечитать задачу",
+    "Добавление одной фразы повышает точность на reasoning-задачах на 5–15% (исследование Re2, 2023).",
+    "Модель «переосмысливает» условия после генерации внутреннего плана и реже теряет ограничения. Стоит 0 токенов на стороне разработчика.",
+    "Реши задачу:\n\n"
+    "У Анны 12 яблок. Она отдала\n"
+    "треть Борису, затем половину\n"
+    "оставшегося — Вере. Сколько\n"
+    "осталось у Анны?\n\n"
+    "→ модель часто теряет один из\n"
+    "  шагов или путает доли.",
+    "Реши задачу:\n\n"
+    "У Анны 12 яблок. Она отдала\n"
+    "треть Борису, затем половину\n"
+    "оставшегося — Вере. Сколько\n"
+    "осталось у Анны?\n\n"
+    "Перечитай условие ещё раз,\n"
+    "затем реши пошагово.\n\n"
+    "→ устойчиво даёт правильный 4.",
+)
+
+
+# ============================================================
+# SLIDE 6 — QUANTITY → QUALITY
+# ============================================================
+technique_slide(
+    "04",
+    "Quantity → Quality: 20 идей, потом топ-3",
+    "Просьба «дай лучшую идею» приводит к среднему. Просьба «дай 20» открывает хвост распределения.",
+    "Первые 3–5 идей — клише из обучающих данных. Идеи 10–20 — там, где живёт оригинальность. Затем модель сама фильтрует.",
+    'Дай нейминг для приложения\nдля медитации.\n\n'
+    "→ Calm, Zen, Mindful, Serenity,\n"
+    "  Tranquil...\n\n"
+    "  Все варианты — generic.\n"
+    "  Уже заняты или скучны.",
+    "Сгенерируй 20 названий для\n"
+    "приложения для медитации.\n"
+    "Будь готов к странным.\n\n"
+    "Затем оцени их по\n"
+    "запоминаемости (1–10) и\n"
+    "выбери 3 лучших с обоснованием.\n\n"
+    "→ среди 20 находятся реально\n"
+    "  свежие варианты.",
+)
+
+
+# ============================================================
+# SLIDE 7 — ANTI-SYCOPHANCY
+# ============================================================
+technique_slide(
+    "05",
+    "Anti-sycophancy: отключаем подхалимство",
+    "Модели обучены быть приятными. Это превращает их в плохих критиков вашей работы.",
+    "RLHF поощряет согласие с пользователем. Явное разрешение «жёсткой обратной связи» и анонимизация авторства возвращают честность.",
+    "Вот мой бизнес-план.\n"
+    "Что думаешь?\n\n"
+    "→ «Отличная идея! Сильные\n"
+    "  стороны: ... Несколько\n"
+    "  небольших замечаний...»\n\n"
+    "  Модель сглаживает реальные\n"
+    "  риски, чтобы вас не расстроить.",
+    "Ниже — бизнес-план,\n"
+    "написанный НЕ мной.\n"
+    "Я инвестор, и мне нужна\n"
+    "беспощадная оценка.\n"
+    "Найди 5 причин, почему\n"
+    "это провалится. Никаких\n"
+    "комплиментов и хеджирования.\n\n"
+    "→ конкретные риски без воды.",
+)
+
+
+# ============================================================
+# SLIDE 8 — STRUCTURED XML
+# ============================================================
+technique_slide(
+    "06",
+    "XML-теги вместо тройных кавычек",
+    "Anthropic и OpenAI оба явно рекомендуют XML. Кавычки и markdown ломаются на вложенности.",
+    "Модели обучены на коде и HTML — теги для них естественные разделители. На длинных промтах точность извлечения данных растёт на 10–20%.",
+    "Вот документ:\n"
+    '"""\n'
+    "Длинный текст с цитатами\n"
+    "и кавычками внутри...\n"
+    '"""\n\n'
+    "Ответь на вопрос: ...\n\n"
+    "→ модель путает, где кончается\n"
+    "  документ. Иногда «отвечает»\n"
+    "  на инструкции из документа\n"
+    "  (prompt injection).",
+    "<document>\n"
+    "Длинный текст с цитатами\n"
+    "и кавычками внутри...\n"
+    "</document>\n\n"
+    "<question>...</question>\n\n"
+    "<instructions>\n"
+    "Сначала найди релевантные\n"
+    "цитаты в <quotes>, затем дай\n"
+    "ответ в <answer>.\n"
+    "</instructions>",
+)
+
+
+# ============================================================
+# SLIDE 9 — NEGATIVE FEW-SHOT
+# ============================================================
+technique_slide(
+    "07",
+    "Negative few-shot: покажите, как НЕ надо",
+    "Один негативный пример с пометкой стоит трёх позитивных.",
+    "Модель учится границе между классами, а не центром. Контраст «вот так — нет, а вот так — да» сужает пространство допустимых ответов.",
+    "Few-shot:\n"
+    "Пример 1: [хороший заголовок]\n"
+    "Пример 2: [хороший заголовок]\n"
+    "Пример 3: [хороший заголовок]\n\n"
+    "Напиши заголовок для статьи\n"
+    "про X.\n\n"
+    "→ модель повторяет стиль, но\n"
+    "  иногда уходит в кликбейт или\n"
+    "  слишком сухо.",
+    "<bad>\n"
+    '"10 шокирующих фактов..."\n'
+    "— причина: кликбейт\n"
+    "</bad>\n"
+    "<bad>\n"
+    '"Анализ рынка СRM 2024"\n'
+    "— причина: скучно\n"
+    "</bad>\n"
+    "<good>\n"
+    '"Почему ваш CRM теряет 30%\n'
+    'лидов и как это починить"\n'
+    "</good>",
+)
+
+
+# ============================================================
+# SLIDE 10 — CHAIN OF DENSITY
+# ============================================================
+technique_slide(
+    "08",
+    "Chain of Density: сжатие без потерь",
+    "Техника от Salesforce/MIT (2023). Краткие саммари становятся плотнее с каждой итерацией.",
+    "Модель пишет саммари, затем добавляет 1–3 пропущенных «сущности» БЕЗ увеличения длины. За 5 итераций плотность информации удваивается.",
+    "Сделай краткое резюме статьи\nна 80 слов.\n\n"
+    "→ Получаем поверхностное\n"
+    "  изложение — упомянуты только\n"
+    "  главные тезисы, цифры и имена\n"
+    "  потеряны.",
+    "Шаг 1: Напиши саммари (80 слов).\n"
+    "Шаг 2: Перечисли 1–3 важные\n"
+    "       сущности, которых там нет.\n"
+    "Шаг 3: Перепиши саммари тем\n"
+    "       же объёмом, включив их.\n"
+    "Повтори шаги 2–3 пять раз.\n\n"
+    "→ финальное саммари плотное,\n"
+    "  без воды, со всеми ключевыми\n"
+    "  фактами.",
+)
+
+
+# ============================================================
+# SLIDE 11 — SELF-ASK
+# ============================================================
+technique_slide(
+    "09",
+    "Self-ask: декомпозиция на под-вопросы",
+    "Сильнее обычного Chain-of-Thought на multi-hop вопросах (исследование Press et al., 2022).",
+    "Модель явно генерирует под-вопросы и отвечает на каждый. Это форсирует промежуточную верификацию и снижает галлюцинации.",
+    "В каком веке родился человек,\n"
+    "написавший «Войну и мир»?\n\n"
+    "→ модель может сразу выдать\n"
+    "  ответ, иногда ошибочный\n"
+    "  (особенно на менее известных\n"
+    "  фактах).",
+    "Вопрос: В каком веке родился\n"
+    "автор «Войны и мира»?\n\n"
+    "Прежде чем ответить, задай\n"
+    "себе под-вопросы и ответь\n"
+    "на каждый:\n"
+    "Q1: Кто автор? → ...\n"
+    "Q2: Когда родился? → ...\n"
+    "Q3: Какой это век? → ...\n"
+    "Финальный ответ: ...",
+)
+
+
+# ============================================================
+# SLIDE 12 — REVERSE PROMPTING
+# ============================================================
+technique_slide(
+    "10",
+    "Reverse prompting: реверс-инжиниринг",
+    "Покажите модели идеальный результат — попросите вывести промт. Затем используйте этот промт.",
+    "Модель — лучший эксперт по самой себе. Она знает, на какие формулировки реагирует. Один из самых быстрых способов получить рабочий промт.",
+    'Долго пишете промт:\n"Ты — копирайтер.\nНапиши пост для LinkedIn..."\n\n'
+    "→ десятки итераций, ручная\n"
+    "  настройка тона и длины,\n"
+    "  пока результат не понравится.",
+    "Вот пост из LinkedIn,\n"
+    "который мне нравится:\n"
+    "<example>...</example>\n\n"
+    "Какой системный промт мог бы\n"
+    "заставить языковую модель\n"
+    "стабильно писать в этом стиле?\n"
+    "Будь конкретен: тон, структура,\n"
+    "длина, риторические приёмы.\n\n"
+    "→ получаете готовый промт,\n"
+    "  откалиброванный под образец.",
+)
+
+
+# ============================================================
+# SLIDE 13 — EXPLICIT UNCERTAINTY
+# ============================================================
+technique_slide(
+    "11",
+    "Explicit uncertainty: разрешите «не знаю»",
+    "Одна фраза снижает галлюцинации в 2–3 раза на фактологических задачах.",
+    "По умолчанию модель оптимизирует «дать ответ». Явное разрешение неопределённости делает «I don't know» допустимой стратегией.",
+    "В каком году компания Acme\n"
+    "Corp была основана?\n\n"
+    "→ модель уверенно выдумывает\n"
+    "  год, если не знает. Звучит\n"
+    "  правдоподобно — самая\n"
+    "  опасная форма галлюцинации.",
+    "В каком году была основана\n"
+    "Acme Corp?\n\n"
+    'Если не уверен — ответь "не\n'
+    'знаю" и объясни, что именно\n'
+    "тебе мешает ответить точно\n"
+    "(нет данных / противоречивые\n"
+    "источники / неоднозначное имя).\n\n"
+    "→ честный ответ или указание\n"
+    "  на конкретный пробел.",
+)
+
+
+# ============================================================
+# SLIDE 14 — TEMPERATURE
+# ============================================================
 s = prs.slides.add_slide(BLANK)
-set_bg(s)
-slide_header(s, "Почему обычные промты проваливаются", "01")
+bg(s)
+header(s, "Temperature под задачу", "12")
 
-points = [
-    ("Размытая роль", "«Ты эксперт» — слишком общо. Модель не знает, в чьём стиле отвечать."),
-    ("Нет критериев", "Без явных критериев успеха модель оптимизирует поверхностный фит."),
-    ("Один проход", "Сложные задачи требуют итерации, а не одного выстрела."),
-    ("Скрытые ассоциации", "Случайные слова в промте уводят распределение ответа в сторону."),
+text(s, Inches(0.55), Inches(1.32), Inches(12.3), Inches(0.5),
+     "Главный параметр, который большинство оставляют по умолчанию. А зря.",
+     size=16, color=ACCENT2, bold=True)
+
+rows = [
+    ("0.0", "Извлечение, парсинг, классификация", "Детерминированно. Если запросить дважды — получите тот же ответ.", ACCENT2),
+    ("0.2 – 0.4", "Код, SQL, технические ответы", "Фокус на корректность, минимум вариативности.", ACCENT2),
+    ("0.7", "Письма, копирайтинг, объяснения", "Дефолт. Баланс между точностью и живостью.", ACCENT),
+    ("0.9 – 1.2", "Брейнсторм, нейминг, креатив", "Хвост распределения. Хорошо в связке с «дай 20 вариантов».", ACCENT),
+    ("> 1.3", "Только эксперименты", "Связность падает. Используйте top_p вместо.", BAD),
 ]
+for i, (t, use, why, color) in enumerate(rows):
+    top = Inches(2.0 + i * 1.02)
+    card(s, Inches(0.55), top, Inches(12.3), Inches(0.92))
+    bar(s, Inches(0.55), top, Inches(0.14), Inches(0.92), color)
+    text(s, Inches(0.85), top + Inches(0.1), Inches(1.6), Inches(0.75),
+         t, size=20, bold=True, color=color, anchor=MSO_ANCHOR.MIDDLE)
+    text(s, Inches(2.6), top + Inches(0.08), Inches(4.4), Inches(0.4),
+         use, size=14, bold=True, color=TEXT)
+    text(s, Inches(2.6), top + Inches(0.45), Inches(9.8), Inches(0.45),
+         why, size=12, color=MUTED)
 
-for i, (title, body) in enumerate(points):
-    top = Inches(1.55 + i * 1.35)
-    add_card(s, Inches(0.6), top, Inches(12.1), Inches(1.2))
-    add_accent_bar(s, Inches(0.6), top, Inches(0.15), Inches(1.2),
-                   color=ACCENT if i % 2 == 0 else ACCENT2)
-    add_text(s, Inches(1.0), top + Inches(0.18), Inches(11), Inches(0.5),
-             title, size=20, bold=True, color=ACCENT2)
-    add_text(s, Inches(1.0), top + Inches(0.6), Inches(11.5), Inches(0.6),
-             body, size=15, color=TEXT_MUTED)
 
-
-# ======================== SLIDE 4: META-PROMPTING ========================
+# ============================================================
+# SLIDE 15 — CHEATSHEET / COMBO
+# ============================================================
 s = prs.slides.add_slide(BLANK)
-set_bg(s)
-slide_header(s, "Meta-prompting: модель пишет промт сама", "02")
+bg(s)
+header(s, "Боевая комбинация: всё вместе")
 
-add_text(s, Inches(0.7), Inches(1.35), Inches(12), Inches(0.6),
-         "Идея: вместо того чтобы шлифовать промт руками, попросите модель его улучшить.",
-         size=17, color=TEXT_MUTED)
+text(s, Inches(0.55), Inches(1.32), Inches(12.3), Inches(0.5),
+     "Один промт, который использует 7 техник из этой презентации.",
+     size=16, color=ACCENT2, bold=True)
 
-# Left card - bad
-add_card(s, Inches(0.6), Inches(2.1), Inches(6), Inches(4.8))
-add_text(s, Inches(0.85), Inches(2.25), Inches(5.5), Inches(0.5),
-         "Обычный подход", size=18, bold=True, color=ACCENT)
-add_text(s, Inches(0.85), Inches(2.85), Inches(5.5), Inches(4),
-         "«Напиши статью про SaaS-продажи»\n\n"
-         "→ Получаем общий текст\n"
-         "→ Правим промт вручную\n"
-         "→ 5–10 итераций\n"
-         "→ Тратим часы",
-         size=15, color=TEXT_LIGHT)
+code_box(s, Inches(0.55), Inches(1.95), Inches(8.1), Inches(5.3),
+         "<role>\n"
+         "Ты — senior product analyst. Ты\n"
+         "пишешь для C-level. Краткость и\n"
+         "цифры важнее красноречия.\n"
+         "</role>\n\n"
+         "<data>{ ... сырые метрики ... }</data>\n\n"
+         "<task>\n"
+         "Найди 3 главные аномалии за\n"
+         "квартал. Если данные\n"
+         "противоречат друг другу — скажи\n"
+         '"данные противоречивы" вместо\n'
+         "догадки.\n\n"
+         "Перед ответом: перечитай <data>\n"
+         "и составь 3 под-вопроса.\n"
+         "Ответь на каждый, затем дай\n"
+         "финальный ответ.\n"
+         "</task>\n\n"
+         "<format>JSON по схеме ниже.</format>\n\n"
+         "assistant: {\n"
+         '  "sub_questions": [',
+         label="combined-prompt", label_color=GOOD, size=11)
 
-# Right card - meta
-add_card(s, Inches(6.8), Inches(2.1), Inches(6), Inches(4.8))
-add_text(s, Inches(7.05), Inches(2.25), Inches(5.5), Inches(0.5),
-         "Meta-prompt", size=18, bold=True, color=ACCENT2)
-add_text(s, Inches(7.05), Inches(2.85), Inches(5.7), Inches(4),
-         "«Ты — эксперт по промт-инженерингу.\n"
-         "Вот моя задача: [...].\n"
-         "Сначала задай мне 5 уточняющих\n"
-         "вопросов, затем составь идеальный\n"
-         "промт под мою задачу с критериями\n"
-         "успеха и форматом вывода.»",
-         size=14, color=TEXT_LIGHT)
-
-
-# ======================== SLIDE 5: SELF-CONSISTENCY / TOT ========================
-s = prs.slides.add_slide(BLANK)
-set_bg(s)
-slide_header(s, "Self-Consistency и Tree-of-Thought", "03")
-
-add_text(s, Inches(0.7), Inches(1.35), Inches(12), Inches(0.6),
-         "Не доверяйте первому ответу. Сэмплируйте несколько и выбирайте консенсус.",
-         size=17, color=TEXT_MUTED)
-
-# Three columns
-cols = [
-    ("Self-Consistency",
-     "Запустите промт N раз с\ntemperature > 0. Возьмите\nответ, встретившийся чаще\nвсего. Точность на матема-\nтике вырастает на 10–20%.",
-     ACCENT),
-    ("Tree-of-Thought",
-     "Модель явно ветвит\nрассуждение: генерирует\n3 гипотезы, оценивает\nкаждую, выбирает лучшую\nи продолжает.",
-     ACCENT2),
-    ("Когда применять",
-     "Логика, математика,\nдиагностика, juridical\nreasoning — везде, где\nцена ошибки выше\nстоимости вызовов.",
-     ACCENT),
+# Right side: which techniques
+techniques_used = [
+    ("XML-теги", "<role>, <data>, <task>"),
+    ("Anti-sycophancy", "«пишешь для C-level, краткость»"),
+    ("Recency anchoring", "правила в конце <task>"),
+    ("Explicit uncertainty", "«данные противоречивы»"),
+    ("Re-read", "«перечитай <data>»"),
+    ("Self-ask", "«составь 3 под-вопроса»"),
+    ("Prefilling", 'assistant: { "sub_questions": ['),
 ]
+for i, (name, where) in enumerate(techniques_used):
+    top = Inches(1.95 + i * 0.74)
+    card(s, Inches(8.85), top, Inches(4.0), Inches(0.66), PANEL2)
+    bar(s, Inches(8.85), top, Inches(0.08), Inches(0.66), ACCENT)
+    text(s, Inches(9.05), top + Inches(0.05), Inches(3.8), Inches(0.3),
+         name, size=12, bold=True, color=ACCENT2)
+    text(s, Inches(9.05), top + Inches(0.32), Inches(3.8), Inches(0.3),
+         where, size=10, color=MUTED, font="Consolas")
 
-for i, (title, body, color) in enumerate(cols):
-    left = Inches(0.6 + i * 4.15)
-    add_card(s, left, Inches(2.1), Inches(4), Inches(4.8))
-    add_accent_bar(s, left, Inches(2.1), Inches(4), Inches(0.1), color=color)
-    add_text(s, left + Inches(0.25), Inches(2.35), Inches(3.6), Inches(0.6),
-             title, size=18, bold=True, color=color)
-    add_text(s, left + Inches(0.25), Inches(3.05), Inches(3.6), Inches(3.5),
-             body, size=14, color=TEXT_LIGHT)
 
-
-# ======================== SLIDE 6: CONTRASTIVE ========================
+# ============================================================
+# SLIDE 16 — CLOSING
+# ============================================================
 s = prs.slides.add_slide(BLANK)
-set_bg(s)
-slide_header(s, "Контрастные пары: показать, как НЕ надо", "04")
+bg(s)
+o = s.shapes.add_shape(MSO_SHAPE.OVAL, Inches(8.5), Inches(-2.5), Inches(8), Inches(8))
+o.line.fill.background(); o.fill.solid(); o.fill.fore_color.rgb = ACCENT
+o.shadow.inherit = False
 
-add_text(s, Inches(0.7), Inches(1.35), Inches(12), Inches(0.6),
-         "Few-shot становится в 2–3 раза эффективнее, если рядом с примером «как надо» есть «как не надо».",
-         size=17, color=TEXT_MUTED)
-
-# Bad example
-add_card(s, Inches(0.6), Inches(2.2), Inches(6), Inches(4.6))
-add_text(s, Inches(0.85), Inches(2.35), Inches(5.5), Inches(0.5),
-         "✕ Плохой пример", size=18, bold=True, color=RGBColor(0xE7, 0x4C, 0x3C))
-add_text(s, Inches(0.85), Inches(2.95), Inches(5.5), Inches(3.5),
-         "Вход: «Объясни рекурсию»\n\n"
-         "Выход: «Рекурсия — это когда\n"
-         "функция вызывает сама себя.\n"
-         "Вот пример на Python...»\n\n"
-         "Почему плохо: жаргон сразу,\n"
-         "нет аналогии, нет проверки\n"
-         "понимания.",
-         size=14, color=TEXT_LIGHT)
-
-# Good example
-add_card(s, Inches(6.8), Inches(2.2), Inches(6), Inches(4.6))
-add_text(s, Inches(7.05), Inches(2.35), Inches(5.5), Inches(0.5),
-         "✓ Хороший пример", size=18, bold=True, color=ACCENT2)
-add_text(s, Inches(7.05), Inches(2.95), Inches(5.5), Inches(3.5),
-         "Вход: «Объясни рекурсию»\n\n"
-         "Выход: «Представь матрёшку:\n"
-         "открываешь — внутри такая же,\n"
-         "но меньше. Открываешь её —\n"
-         "снова такая же. Так и функция…»\n\n"
-         "Затем: код + вопрос на проверку.",
-         size=14, color=TEXT_LIGHT)
-
-
-# ======================== SLIDE 7: RPTF ========================
-s = prs.slides.add_slide(BLANK)
-set_bg(s)
-slide_header(s, "Role · Persona · Task · Format", "05")
-
-add_text(s, Inches(0.7), Inches(1.35), Inches(12), Inches(0.6),
-         "Каркас, который превращает любой запрос в воспроизводимый промт.",
-         size=17, color=TEXT_MUTED)
-
-blocks = [
-    ("R — Role", "Кто отвечает: домен, опыт, специализация.", ACCENT),
-    ("P — Persona", "Стиль и тон: для кого пишем, какой регистр.", ACCENT2),
-    ("T — Task", "Точная задача с критериями успеха и ограничениями.", ACCENT),
-    ("F — Format", "Жёсткий формат вывода: JSON, таблица, секции.", ACCENT2),
-]
-
-for i, (title, body, color) in enumerate(blocks):
-    col = i % 2
-    row = i // 2
-    left = Inches(0.6 + col * 6.2)
-    top = Inches(2.0 + row * 2.4)
-    add_card(s, left, top, Inches(6), Inches(2.1))
-    add_text(s, left + Inches(0.3), top + Inches(0.2), Inches(5.5), Inches(0.6),
-             title, size=22, bold=True, color=color)
-    add_text(s, left + Inches(0.3), top + Inches(0.95), Inches(5.5), Inches(1.1),
-             body, size=15, color=TEXT_LIGHT)
-
-
-# ======================== SLIDE 8: LEAST-TO-MOST ========================
-s = prs.slides.add_slide(BLANK)
-set_bg(s)
-slide_header(s, "Least-to-Most: декомпозиция вместо штурма", "06")
-
-add_text(s, Inches(0.7), Inches(1.35), Inches(12), Inches(0.6),
-         "Сначала просим модель разбить задачу на под-задачи. Затем решаем каждую отдельно.",
-         size=17, color=TEXT_MUTED)
-
-steps = [
-    ("Шаг 1", "Разложить", "«Перечисли под-задачи,\nкоторые нужно решить.»"),
-    ("Шаг 2", "Решить", "Для каждой под-задачи —\nотдельный фокусированный\nпромт."),
-    ("Шаг 3", "Собрать", "Объединить ответы и\nпопросить модель проверить\nконсистентность."),
-]
-
-for i, (label, title, body) in enumerate(steps):
-    left = Inches(0.6 + i * 4.15)
-    add_card(s, left, Inches(2.2), Inches(4), Inches(4.6))
-    add_text(s, left + Inches(0.3), Inches(2.4), Inches(3.5), Inches(0.5),
-             label, size=14, bold=True, color=ACCENT)
-    add_text(s, left + Inches(0.3), Inches(2.9), Inches(3.5), Inches(0.6),
-             title, size=22, bold=True, color=TEXT_LIGHT)
-    add_text(s, left + Inches(0.3), Inches(3.7), Inches(3.5), Inches(2.8),
-             body, size=14, color=TEXT_MUTED)
-    if i < 2:
-        arrow = s.shapes.add_shape(MSO_SHAPE.RIGHT_ARROW,
-                                    Inches(4.5 + i * 4.15), Inches(4.2),
-                                    Inches(0.4), Inches(0.4))
-        arrow.line.fill.background()
-        arrow.fill.solid()
-        arrow.fill.fore_color.rgb = ACCENT2
-        arrow.shadow.inherit = False
-
-
-# ======================== SLIDE 9: CONTROL TOKENS ========================
-s = prs.slides.add_slide(BLANK)
-set_bg(s)
-slide_header(s, "Скрытые управляющие анкеры", "07")
-
-add_text(s, Inches(0.7), Inches(1.35), Inches(12.2), Inches(0.6),
-         "Малоизвестный приём: использовать XML-теги и якорные фразы как «ручки» для модели.",
-         size=17, color=TEXT_MUTED)
-
-tips = [
-    ("<context>…</context>", "Изолируйте входные данные от инструкций — модель перестаёт путать их."),
-    ("<thinking>…</thinking>", "Зарезервированное место для рассуждений, которое можно потом скрыть от пользователя."),
-    ("«Подумай шаг за шагом, прежде чем отвечать»", "Классический CoT-якорь — даёт +5–15% точности на reasoning-бенчмарках."),
-    ("«Если не уверен — скажи I don't know»", "Снижает галлюцинации на фактологических задачах в 2–3 раза."),
-]
-
-for i, (code, body) in enumerate(tips):
-    top = Inches(2.05 + i * 1.2)
-    add_card(s, Inches(0.6), top, Inches(12.1), Inches(1.05))
-    add_text(s, Inches(0.85), top + Inches(0.13), Inches(5.5), Inches(0.5),
-             code, size=15, bold=True, color=ACCENT2, font="Consolas")
-    add_text(s, Inches(0.85), top + Inches(0.55), Inches(11.5), Inches(0.5),
-             body, size=14, color=TEXT_LIGHT)
-
-
-# ======================== SLIDE 10: SELF-CRITIQUE ========================
-s = prs.slides.add_slide(BLANK)
-set_bg(s)
-slide_header(s, "Self-Critique: модель сама себе редактор", "08")
-
-add_text(s, Inches(0.7), Inches(1.35), Inches(12.2), Inches(0.6),
-         "Двухпроходная схема даёт результат сравнимый с GPT-уровнем выше — без смены модели.",
-         size=17, color=TEXT_MUTED)
-
-phases = [
-    ("Проход 1", "Generate",
-     "Обычный ответ\nна задачу без\nсамокритики.", ACCENT),
-    ("Проход 2", "Critique",
-     "«Найди 3 слабости\nв своём ответе.\nБудь беспощаден.»", ACCENT2),
-    ("Проход 3", "Revise",
-     "«Перепиши ответ,\nустранив все\nнайденные слабости.»", ACCENT),
-]
-
-for i, (label, title, body, color) in enumerate(phases):
-    left = Inches(0.6 + i * 4.15)
-    add_card(s, left, Inches(2.2), Inches(4), Inches(4.6))
-    add_accent_bar(s, left, Inches(2.2), Inches(4), Inches(0.12), color=color)
-    add_text(s, left + Inches(0.3), Inches(2.5), Inches(3.5), Inches(0.5),
-             label, size=14, bold=True, color=color)
-    add_text(s, left + Inches(0.3), Inches(3.0), Inches(3.5), Inches(0.7),
-             title, size=24, bold=True, color=TEXT_LIGHT)
-    add_text(s, left + Inches(0.3), Inches(3.9), Inches(3.5), Inches(2.5),
-             body, size=15, color=TEXT_MUTED)
-
-
-# ======================== SLIDE 11: CHEATSHEET ========================
-s = prs.slides.add_slide(BLANK)
-set_bg(s)
-slide_header(s, "Чек-лист на каждый день", "09")
-
-checks = [
-    "Используйте каркас RPTF (Role · Persona · Task · Format)",
-    "Просите модель сначала задать уточняющие вопросы",
-    "Изолируйте данные XML-тегами <context>, <example>, <thinking>",
-    "Для логики — Self-Consistency: 3–5 сэмплов с temperature 0.7",
-    "Для творчества — контрастные пары «как надо / как не надо»",
-    "Сложные задачи бейте Least-to-Most на под-задачи",
-    "Финальный проход — Self-Critique: найди 3 слабости и перепиши",
-    "Явно разрешайте «I don't know» — это снижает галлюцинации",
-]
-
-for i, item in enumerate(checks):
-    col = i % 2
-    row = i // 2
-    left = Inches(0.6 + col * 6.2)
-    top = Inches(1.55 + row * 1.25)
-    add_card(s, left, top, Inches(6), Inches(1.05))
-    # checkmark circle
-    circle = s.shapes.add_shape(MSO_SHAPE.OVAL, left + Inches(0.25), top + Inches(0.3),
-                                 Inches(0.5), Inches(0.5))
-    circle.line.fill.background()
-    circle.fill.solid()
-    circle.fill.fore_color.rgb = ACCENT2
-    circle.shadow.inherit = False
-    add_text(s, left + Inches(0.28), top + Inches(0.28), Inches(0.5), Inches(0.5),
-             "✓", size=22, bold=True, color=BG_DARK, align=PP_ALIGN.CENTER)
-    add_text(s, left + Inches(0.95), top + Inches(0.28), Inches(5), Inches(0.6),
-             item, size=13, color=TEXT_LIGHT)
-
-
-# ======================== SLIDE 12: CLOSING ========================
-s = prs.slides.add_slide(BLANK)
-set_bg(s)
-
-deco = s.shapes.add_shape(MSO_SHAPE.OVAL, Inches(9), Inches(-2), Inches(7), Inches(7))
-deco.line.fill.background()
-deco.fill.solid()
-deco.fill.fore_color.rgb = ACCENT
-deco.shadow.inherit = False
-
-add_text(s, Inches(0.8), Inches(2.6), Inches(11), Inches(1.2),
-         "Промт — это интерфейс к модели",
-         size=48, bold=True, color=TEXT_LIGHT)
-add_text(s, Inches(0.8), Inches(3.9), Inches(11), Inches(0.8),
-         "Чем точнее интерфейс — тем мощнее результат.",
-         size=22, color=ACCENT2)
-add_text(s, Inches(0.8), Inches(5.0), Inches(11), Inches(0.6),
-         "Спасибо. Вопросы?",
-         size=20, color=TEXT_MUTED)
-
+text(s, Inches(0.8), Inches(2.3), Inches(11), Inches(0.5),
+     "ГЛАВНОЕ", size=14, bold=True, color=ACCENT2)
+text(s, Inches(0.8), Inches(2.85), Inches(11), Inches(2.0),
+     "Маленькие фразы дают\nбольшие сдвиги",
+     size=46, bold=True, color=TEXT, line_spacing=1.05)
+text(s, Inches(0.8), Inches(4.85), Inches(11), Inches(0.5),
+     '«Перечитай условие», «не уверен — скажи не знаю»,',
+     size=16, color=MUTED)
+text(s, Inches(0.8), Inches(5.2), Inches(11), Inches(0.5),
+     "<tags>, prefill — это инженерные ручки, а не магия.",
+     size=16, color=MUTED)
+text(s, Inches(0.8), Inches(6.3), Inches(11), Inches(0.5),
+     "Спасибо. Вопросы?", size=20, color=ACCENT, bold=True)
 
 prs.save("/home/user/repo1/prompt_engineering_techniques.pptx")
-print("Saved")
+print(f"Saved: {len(prs.slides)} slides")
