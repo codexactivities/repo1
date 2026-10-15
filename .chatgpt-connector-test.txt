@@ -1,0 +1,3 @@
+Temporary GitHub connector capability test
+Stage: created
+Date: 2026-10-15
