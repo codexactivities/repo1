@@ -1,2 +1,0 @@
-Temporary user-requested GitHub plugin test.
-Phase: update verified.
