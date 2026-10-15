@@ -1,2 +1,2 @@
 Temporary user-requested GitHub plugin test.
-Phase: create.
+Phase: update verified.
