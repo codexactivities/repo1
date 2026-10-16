@@ -1,0 +1,16 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {evaluate,template,validateCases,normalizeResults,stats,gate,transition,csv} from '../dist/core.js';
+import {cases,prompts,demoResults} from '../dist/demo.js';
+const sample=()=>({cases:structuredClone(cases),prompts:structuredClone(prompts),results:demoResults()});
+test('template replaces values literally and preserves unknown variables',()=>assert.equal(template('{{x}} / {{missing}} / {{ x }}',{x:'$&'}),'$& / {{missing}} / $&'));
+test('all rules must pass; contains ignores case, exact does not',()=>{assert.equal(evaluate('Hello',[{type:'contains',value:'hello'},{type:'notContains',value:'bye'}]).pass,true);assert.equal(evaluate('Hello',[{type:'exact',value:'hello'}]).pass,false);});
+test('JSON checks strict parse; word count handles empty and Unicode whitespace',()=>{assert.equal(evaluate('```json\n{}\n```',[{type:'json'}]).pass,false);assert.equal(evaluate('{}',[{type:'json'}]).pass,true);assert.equal(evaluate('',[{type:'maxWords',value:1}]).pass,true);assert.equal(evaluate('Один\nдва три',[{type:'maxWords',value:2}]).pass,false);});
+test('missing answers and zero-rule tests are ungraded',()=>{assert.equal(evaluate(undefined,[{type:'json'}]).pass,null);assert.equal(evaluate('anything',[]).pass,null);});
+test('dataset validates unique IDs, variables and rule types',()=>{assert.equal(validateCases(cases).length,12);assert.throws(()=>validateCases([cases[0],cases[0]]));assert.throws(()=>validateCases([{...cases[0],rules:[{type:'regex',value:'.*'}]}]));assert.throws(()=>validateCases([{...cases[0],rules:[{type:'contains',value:''}]}]));assert.throws(()=>validateCases([{...cases[0],id:'__proto__'}]));});
+test('demo has two regressions and release is blocked',()=>{const r=sample();assert.equal(stats(r,'b').rate,10/12);assert.equal(gate(r,80).regressions,2);assert.equal(gate(r,80).state,'fail');assert.equal(transition(r,cases.find(c=>c.id==='short')),'regression');});
+test('release requires complete A and B responses and rules',()=>{const r=sample();delete r.results.refund.a;assert.equal(gate(r,0).state,'pending');const other=sample();other.cases[0].rules=[];assert.equal(gate(other,0).state,'pending');});
+test('passed B cannot become a release when provider failed',()=>{const r=sample();r.results.refund.b={error:'Provider HTTP 429'};assert.equal(stats(r,'b').done,11);assert.equal(gate(r,0).state,'pending');});
+test('import accepts partial runs and empty answers but rejects unknown/duplicate IDs',()=>{assert.equal(normalizeResults([{id:'refund',a:{text:''}}],cases).refund.a.text,'');assert.throws(()=>normalizeResults([{id:'absent',b:{text:'x'}}],cases));assert.throws(()=>normalizeResults([{id:'refund'},{id:'refund'}],cases));assert.equal(normalizeResults([{id:'refund',b:{error:'rate limited',text:'ignore me'}}],cases).refund.b.text,undefined);});
+test('CSV escapes delimiters, quotes, line breaks and formula injection',()=>{assert.equal(csv([['=1+2','a,"b','a\nb']]),'\uFEFF"\'=1+2","a,""b","a\nb"');});
+test('slice statistics use only cases in that slice',()=>assert.equal(stats(sample(),'b','Безопасность').total,2));

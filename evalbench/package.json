@@ -1,0 +1,6 @@
+{
+  "name": "evalbench", "version": "1.0.0", "private": true, "type": "module",
+  "description": "A local-first workspace for prompt evaluations and regression review",
+  "scripts": {"start":"node scripts/serve.mjs", "test":"node --test tests/*.test.mjs", "check":"node --check dist/app.js && node --check dist/core.js && node --check scripts/serve.mjs"},
+  "engines":{"node":">=22"}
+}
