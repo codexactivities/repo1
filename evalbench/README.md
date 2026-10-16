@@ -2,7 +2,9 @@
 
 A local-first prompt evaluation workspace. Compare two prompt/model versions on the same dataset, inspect automatic checks, find regressions, and review answers blind. Russian UI; no frontend dependencies or build step.
 
-**Live app:** https://evalbench-prompt-lab.dot-punks-gp-9267.chatgpt.site (owner-private hosting).
+**Live app on GitHub Pages:** https://codexactivities.github.io/repo1/
+
+**Additional owner-private deployment:** https://evalbench-prompt-lab.dot-punks-gp-9267.chatgpt.site
 
 **Source:** https://github.com/codexactivities/repo1/tree/main/evalbench
 
@@ -110,7 +112,7 @@ Workspace data stays in this browser and origin under `evalbench.workspace.v1`. 
 
 `dist/` is a self-contained static site using relative asset paths. The repository includes `.github/workflows/evalbench-pages.yml`, which checks tests and publishes this directory after pushes to `main`.
 
-A repository administrator must enable **Settings → Pages → Build and deployment → Source: GitHub Actions** once. This setting cannot be enabled by the workflow's default `GITHUB_TOKEN`. Then run **Deploy EvalBench to Pages** in Actions, or push a commit. The successful deployment exposes the URL in the workflow's `github-pages` environment. The local runner cannot execute on GitHub Pages.
+GitHub Pages is already enabled in this repository. Both the validation and deployment jobs succeeded. The root URL works for the existing branch-based Pages build (redirect to the subproject) and for the included static deployment workflow (app at root). If moving to a new repository, an administrator must enable Pages first; the default `GITHUB_TOKEN` cannot enable it. The local runner cannot execute on GitHub Pages.
 
 The root `index.html` links/redirects to `evalbench/dist/` for branch-based Pages hosting as well. Do not assume Pages is live until a deployment succeeds.
 
@@ -120,4 +122,4 @@ Read `AGENTS.md` and `ARCHITECTURE.md`. Run `npm test` and `npm run check` from 
 
 ### Validation
 
-14 Node tests cover grading, regressions, incomplete coverage, data import, CSV export, local server origin checks and mocked A/B execution. Syntax checks pass. Browser visual/interaction QA could not run because the managed preview sandbox failed to mount `/proc`; this is recorded as an environment limitation, not a successful visual check.
+14 Node tests cover grading, regressions, incomplete coverage, data import, CSV export, local server origin checks and mocked A/B execution. Syntax checks pass. The managed local preview failed to mount `/proc`. After GitHub Pages deployed successfully, browser QA verified the actual deployed UI: overview, two-regression filter, per-case rule/answer dialog, blind review, persistence of a vote after reload, and prompt saving. Paid provider execution was not tested; the runner uses mocked provider tests.
