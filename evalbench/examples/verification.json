@@ -1,0 +1,334 @@
+{
+  "prompts": {
+    "a": {
+      "name": "A",
+      "model": "synthetic-a",
+      "text": "a\n{{id}}\n{{question}}"
+    },
+    "b": {
+      "name": "B",
+      "model": "synthetic-b",
+      "text": "b\n{{id}}\n{{question}}"
+    }
+  },
+  "cases": [
+    {
+      "id": "improve_contains",
+      "title": "improve_contains",
+      "slice": "Verification",
+      "vars": {
+        "id": "improve_contains",
+        "question": "Question improve_contains"
+      },
+      "rules": [
+        {
+          "type": "contains",
+          "value": "yes"
+        }
+      ],
+      "reference": "yes"
+    },
+    {
+      "id": "regress_exact",
+      "title": "regress_exact",
+      "slice": "Verification",
+      "vars": {
+        "id": "regress_exact",
+        "question": "Question regress_exact"
+      },
+      "rules": [
+        {
+          "type": "exact",
+          "value": "OK"
+        }
+      ],
+      "reference": "OK"
+    },
+    {
+      "id": "stable_json",
+      "title": "stable_json",
+      "slice": "Verification",
+      "vars": {
+        "id": "stable_json",
+        "question": "Question stable_json"
+      },
+      "rules": [
+        {
+          "type": "json"
+        }
+      ],
+      "reference": "{}"
+    },
+    {
+      "id": "stable_fail",
+      "title": "stable_fail",
+      "slice": "Verification",
+      "vars": {
+        "id": "stable_fail",
+        "question": "Question stable_fail"
+      },
+      "rules": [
+        {
+          "type": "notContains",
+          "value": "secret"
+        }
+      ],
+      "reference": "safe"
+    },
+    {
+      "id": "improve_length",
+      "title": "improve_length",
+      "slice": "Verification",
+      "vars": {
+        "id": "improve_length",
+        "question": "Question improve_length"
+      },
+      "rules": [
+        {
+          "type": "maxWords",
+          "value": 2
+        }
+      ],
+      "reference": "one two"
+    },
+    {
+      "id": "stable_contains",
+      "title": "stable_contains",
+      "slice": "Verification",
+      "vars": {
+        "id": "stable_contains",
+        "question": "Question stable_contains"
+      },
+      "rules": [
+        {
+          "type": "contains",
+          "value": "yes"
+        }
+      ],
+      "reference": "yes"
+    },
+    {
+      "id": "improve_json",
+      "title": "improve_json",
+      "slice": "Verification",
+      "vars": {
+        "id": "improve_json",
+        "question": "Question improve_json"
+      },
+      "rules": [
+        {
+          "type": "json"
+        }
+      ],
+      "reference": "{}"
+    },
+    {
+      "id": "regress_contains",
+      "title": "regress_contains",
+      "slice": "Verification",
+      "vars": {
+        "id": "regress_contains",
+        "question": "Question regress_contains"
+      },
+      "rules": [
+        {
+          "type": "contains",
+          "value": "yes"
+        }
+      ],
+      "reference": "yes"
+    }
+  ],
+  "responses": [
+    {
+      "id": "improve_contains",
+      "a": {
+        "text": "no"
+      },
+      "b": {
+        "text": "yes"
+      }
+    },
+    {
+      "id": "regress_exact",
+      "a": {
+        "text": "OK"
+      },
+      "b": {
+        "text": "ok"
+      }
+    },
+    {
+      "id": "stable_json",
+      "a": {
+        "text": "{}"
+      },
+      "b": {
+        "text": "{\"ok\":true}"
+      }
+    },
+    {
+      "id": "stable_fail",
+      "a": {
+        "text": "secret"
+      },
+      "b": {
+        "text": "secret"
+      }
+    },
+    {
+      "id": "improve_length",
+      "a": {
+        "text": "one two three"
+      },
+      "b": {
+        "text": "one two"
+      }
+    },
+    {
+      "id": "stable_contains",
+      "a": {
+        "text": "yes"
+      },
+      "b": {
+        "text": "yes"
+      }
+    },
+    {
+      "id": "improve_json",
+      "a": {
+        "text": "invalid"
+      },
+      "b": {
+        "text": "{}"
+      }
+    },
+    {
+      "id": "regress_contains",
+      "a": {
+        "text": "yes"
+      },
+      "b": {
+        "text": "no"
+      }
+    }
+  ],
+  "correctedResponses": [
+    {
+      "id": "improve_contains",
+      "a": {
+        "text": "no"
+      },
+      "b": {
+        "text": "yes"
+      }
+    },
+    {
+      "id": "regress_exact",
+      "a": {
+        "text": "OK"
+      },
+      "b": {
+        "text": "OK"
+      }
+    },
+    {
+      "id": "stable_json",
+      "a": {
+        "text": "{}"
+      },
+      "b": {
+        "text": "{}"
+      }
+    },
+    {
+      "id": "stable_fail",
+      "a": {
+        "text": "secret"
+      },
+      "b": {
+        "text": "safe"
+      }
+    },
+    {
+      "id": "improve_length",
+      "a": {
+        "text": "one two three"
+      },
+      "b": {
+        "text": "one two"
+      }
+    },
+    {
+      "id": "stable_contains",
+      "a": {
+        "text": "yes"
+      },
+      "b": {
+        "text": "yes"
+      }
+    },
+    {
+      "id": "improve_json",
+      "a": {
+        "text": "invalid"
+      },
+      "b": {
+        "text": "{}"
+      }
+    },
+    {
+      "id": "regress_contains",
+      "a": {
+        "text": "yes"
+      },
+      "b": {
+        "text": "yes"
+      }
+    }
+  ],
+  "expectedTransitions": [
+    "improvement",
+    "regression",
+    "pass",
+    "failure",
+    "improvement",
+    "pass",
+    "improvement",
+    "regression"
+  ],
+  "expectedPasses": {
+    "improve_contains": [
+      false,
+      true
+    ],
+    "regress_exact": [
+      true,
+      false
+    ],
+    "stable_json": [
+      true,
+      true
+    ],
+    "stable_fail": [
+      false,
+      false
+    ],
+    "improve_length": [
+      false,
+      true
+    ],
+    "stable_contains": [
+      true,
+      true
+    ],
+    "improve_json": [
+      false,
+      true
+    ],
+    "regress_contains": [
+      true,
+      false
+    ]
+  }
+}

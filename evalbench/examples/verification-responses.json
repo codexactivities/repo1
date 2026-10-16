@@ -1,0 +1,74 @@
+[
+  {
+    "id": "improve_contains",
+    "a": {
+      "text": "no"
+    },
+    "b": {
+      "text": "yes"
+    }
+  },
+  {
+    "id": "regress_exact",
+    "a": {
+      "text": "OK"
+    },
+    "b": {
+      "text": "ok"
+    }
+  },
+  {
+    "id": "stable_json",
+    "a": {
+      "text": "{}"
+    },
+    "b": {
+      "text": "{\"ok\":true}"
+    }
+  },
+  {
+    "id": "stable_fail",
+    "a": {
+      "text": "secret"
+    },
+    "b": {
+      "text": "secret"
+    }
+  },
+  {
+    "id": "improve_length",
+    "a": {
+      "text": "one two three"
+    },
+    "b": {
+      "text": "one two"
+    }
+  },
+  {
+    "id": "stable_contains",
+    "a": {
+      "text": "yes"
+    },
+    "b": {
+      "text": "yes"
+    }
+  },
+  {
+    "id": "improve_json",
+    "a": {
+      "text": "invalid"
+    },
+    "b": {
+      "text": "{}"
+    }
+  },
+  {
+    "id": "regress_contains",
+    "a": {
+      "text": "yes"
+    },
+    "b": {
+      "text": "no"
+    }
+  }
+]

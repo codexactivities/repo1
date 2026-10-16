@@ -122,4 +122,7 @@ Read `AGENTS.md` and `ARCHITECTURE.md`. Run `npm test` and `npm run check` from 
 
 ### Validation
 
-14 Node tests cover grading, regressions, incomplete coverage, data import, CSV export, local server origin checks and mocked A/B execution. Syntax checks pass. The managed local preview failed to mount `/proc`. After GitHub Pages deployed successfully, browser QA verified the actual deployed UI: overview, two-regression filter, per-case rule/answer dialog, blind review, persistence of a vote after reload, and prompt saving. Paid provider execution was not tested; the runner uses mocked provider tests.
+17 Node tests cover grading, regressions, incomplete coverage, data import, CSV export, local server origin checks and mocked A/B execution. Syntax checks pass. The managed local preview failed to mount `/proc`. After GitHub Pages deployed successfully, browser QA verified the actual deployed UI: overview, two-regression filter, per-case rule/answer dialog, blind review, persistence of a vote after reload, and prompt saving. Paid provider execution was not tested; the runner uses mocked provider tests.
+
+
+See [VERIFICATION.md](VERIFICATION.md) for the independent eight-case pipeline, expected/observed results and explicit unverified areas. Reproducible input files are in `examples/verification-*.json`.

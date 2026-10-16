@@ -1,0 +1,128 @@
+[
+  {
+    "id": "improve_contains",
+    "title": "improve_contains",
+    "slice": "Verification",
+    "vars": {
+      "id": "improve_contains",
+      "question": "Question improve_contains"
+    },
+    "rules": [
+      {
+        "type": "contains",
+        "value": "yes"
+      }
+    ],
+    "reference": "yes"
+  },
+  {
+    "id": "regress_exact",
+    "title": "regress_exact",
+    "slice": "Verification",
+    "vars": {
+      "id": "regress_exact",
+      "question": "Question regress_exact"
+    },
+    "rules": [
+      {
+        "type": "exact",
+        "value": "OK"
+      }
+    ],
+    "reference": "OK"
+  },
+  {
+    "id": "stable_json",
+    "title": "stable_json",
+    "slice": "Verification",
+    "vars": {
+      "id": "stable_json",
+      "question": "Question stable_json"
+    },
+    "rules": [
+      {
+        "type": "json"
+      }
+    ],
+    "reference": "{}"
+  },
+  {
+    "id": "stable_fail",
+    "title": "stable_fail",
+    "slice": "Verification",
+    "vars": {
+      "id": "stable_fail",
+      "question": "Question stable_fail"
+    },
+    "rules": [
+      {
+        "type": "notContains",
+        "value": "secret"
+      }
+    ],
+    "reference": "safe"
+  },
+  {
+    "id": "improve_length",
+    "title": "improve_length",
+    "slice": "Verification",
+    "vars": {
+      "id": "improve_length",
+      "question": "Question improve_length"
+    },
+    "rules": [
+      {
+        "type": "maxWords",
+        "value": 2
+      }
+    ],
+    "reference": "one two"
+  },
+  {
+    "id": "stable_contains",
+    "title": "stable_contains",
+    "slice": "Verification",
+    "vars": {
+      "id": "stable_contains",
+      "question": "Question stable_contains"
+    },
+    "rules": [
+      {
+        "type": "contains",
+        "value": "yes"
+      }
+    ],
+    "reference": "yes"
+  },
+  {
+    "id": "improve_json",
+    "title": "improve_json",
+    "slice": "Verification",
+    "vars": {
+      "id": "improve_json",
+      "question": "Question improve_json"
+    },
+    "rules": [
+      {
+        "type": "json"
+      }
+    ],
+    "reference": "{}"
+  },
+  {
+    "id": "regress_contains",
+    "title": "regress_contains",
+    "slice": "Verification",
+    "vars": {
+      "id": "regress_contains",
+      "question": "Question regress_contains"
+    },
+    "rules": [
+      {
+        "type": "contains",
+        "value": "yes"
+      }
+    ],
+    "reference": "yes"
+  }
+]
