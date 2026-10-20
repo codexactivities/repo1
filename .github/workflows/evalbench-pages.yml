@@ -21,7 +21,7 @@ jobs:
         working-directory: evalbench
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: evalbench/dist
+          path: evalbench/launcher
   deploy:
     needs: validate
     runs-on: ubuntu-latest

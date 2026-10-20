@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { makeServer } from '../scripts/serve.mjs';
-import { validateCases, normalizeResults, evaluate, stats, transition, gate, csv } from '../dist/core.js';
+import { validateCases, normalizeResults, evaluate, stats, transition, gate, csv } from '../web/core.js';
 
 const fixture = JSON.parse(await readFile(new URL('../examples/verification.json', import.meta.url)));
 const cases = validateCases(fixture.cases);

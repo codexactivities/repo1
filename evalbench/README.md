@@ -1,128 +1,101 @@
-# EvalBench
+# EvalBench 2
 
-A local-first prompt evaluation workspace. Compare two prompt/model versions on the same dataset, inspect automatic checks, find regressions, and review answers blind. Russian UI; no frontend dependencies or build step.
+Server-backed workspace for prompt evaluations: A/B prompts, deterministic checks, regression detection, blind review, resumable runs and JSON/CSV exports. Russian interface.
 
-**Live app on GitHub Pages:** https://codexactivities.github.io/repo1/
+**Online app:** https://evalbench-prompt-lab.dot-punks-gp-9267.chatgpt.site
 
-**Additional owner-private deployment:** https://evalbench-prompt-lab.dot-punks-gp-9267.chatgpt.site
+**Readable source:** https://github.com/codexactivities/repo1/tree/main/evalbench
 
-**Source:** https://github.com/codexactivities/repo1/tree/main/evalbench
+The online app is owner-private. GitHub stores the source and its Pages URL opens the hosted app. GitHub Pages itself does not execute the backend.
 
-## Quick start
+## What now works online
 
-Requires Node.js 22 or newer. From the repository root:
+- The server creates a persisted run with immutable dataset/prompt snapshots and a task queue.
+- The browser advances up to two tasks concurrently. Each answer is committed to D1 before it is returned to the browser.
+- A run can be reopened after reload or from another authenticated device. Pending work resumes using **Продолжить**. Closing a tab stops scheduling new work; this is not an unattended background-job service.
+- **Проверить сервер на синтетике** executes 16 tasks on an independent eight-case fixture. Expected A: 50%; B: 62.5%; two regressions. It is explicitly labelled synthetic and never calls a real model.
+- **Выполнить на моделях** uses a server-held provider key and an HTTPS OpenAI Chat Completions-compatible endpoint. Without a configured key this action is disabled, rather than pretending to call a model.
+- Import replies from a JSON file or paste JSON. In server mode the imported run is saved in D1.
+- Reviews/comments, server-side JSON/CSV downloads, and recoverable archive/restore are supported.
 
-```sh
-cd evalbench
-npm start
-```
+Dataset and prompt drafts remain browser-local. Every server run keeps its own durable copy. The old local-only workspace is retained; browser-local runs are not uploaded automatically.
 
-Open http://127.0.0.1:3000. No installation is required. For the static-only app, serve `dist/` with any HTTP server (ES modules require HTTP, not `file://`).
+## Quick verification
 
-## Workflow
+1. Open the online app and choose **Новый прогон → Проверить сервер на синтетике**.
+2. Expect 8 tests, candidate 63% (62.5% rounded), baseline 50%, +13 percentage points (12.5 rounded), and two regressions.
+3. Reload: the server run remains available. Open its answer details and download JSON/CSV.
+4. Archive the run from History, then use **Архив → Восстановить** to bring it back.
 
-1. Explore the clearly labelled demo (12 cases, prepared answers, two deliberate regressions).
-2. Open **Набор тестов** and edit/import your own JSON dataset.
-3. Edit baseline A and candidate B in **Промпты**, then save both versions.
-4. Start a new run: import model responses, or execute using the optional local runner.
-5. Inspect pass rates, coverage, per-slice quality and regressions. Click a row to see answers, rendered prompts and each check.
-6. Review answers without version labels in **Слепое сравнение**. Choose a winner/tie/skip and add a note.
-7. Export results as CSV or a complete run JSON. Use **Экспорт workspace** to back up or transfer everything.
+See [VERIFICATION.md](VERIFICATION.md) for precise test coverage and limits.
 
-An individual run export is an archival snapshot, not the response-import format. To re-import the full state, use a workspace export. For answer import, follow `examples/responses.json`.
+## Provider setup
 
-## What is measured
+Hosted runtime variables are set through Sites, not GitHub, the browser, or `.openai/hosting.json`:
 
-- A test passes only when every automatic rule passes.
-- `contains` and `notContains`: case-insensitive substring checks.
-- `exact`: case-sensitive string comparison after trimming surrounding whitespace.
-- `json`: strict `JSON.parse`; Markdown fences are not stripped. This checks valid JSON syntax, not a JSON Schema.
-- `maxWords`: whitespace-separated words. This is not a tokenizer or a token limit.
-- No rules, missing answers or request errors are ungraded. They do not become passes.
-- A regression is an A pass followed by a B fail on the same case.
-- Release gate requires complete, rule-graded A and B, B pass rate at or above the selected threshold, and zero regressions.
-- The percentage-point delta appears only for complete, equally graded A/B sets.
-- Human judgments are independent of automatic scores and exported with results. They do not override the gate. Blind review reduces version-label bias; distinctive content may still reveal a version.
-- Delay is measured by the runner or imported. Cost is optional imported USD; no model pricing is invented.
+| Variable | Purpose |
+| --- | --- |
+| `EVAL_API_KEY` | Secret provider API key; required for model execution |
+| `EVAL_API_URL` | Optional HTTPS Chat Completions endpoint; defaults to `https://api.openai.com/v1/chat/completions` |
+| `EVAL_MODEL` | Optional display/default model identifier |
 
-Checks are heuristics. They do not establish factual correctness, safety or statistical significance. Judge-model grading and confidence intervals are not implemented.
+For OpenAI keys, use the OpenAI Developers integration's secure provisioning flow. Do not paste a key into chat or commit it. A deployment is needed after changing runtime variables.
 
-## Dataset format
+Then set and save valid model IDs for A/B in **Промпты** and execute a small pilot. A run sends one user message per rendered prompt, uses provider sampling defaults, has a configurable 16–2048 output-token budget (512 default), and a 35-second request timeout. Maximum 50 cases per model run. Both versions use the same server-configured provider/key. There are no automatic retries of persisted success/error results. A crashed/incomplete lease can be reclaimed after 90 seconds; in rare network-failure cases the provider may have processed an unrecorded request, so exactly-once external billing is not guaranteed.
 
-```json
-[
-  {
-    "id": "refund",
-    "title": "Возврат покупки",
-    "slice": "Политики",
-    "vars": {
-      "question": "Когда вернут деньги?",
-      "context": "В течение 10 рабочих дней."
-    },
-    "reference": "10 рабочих дней",
-    "rules": [{"type": "contains", "value": "10 рабочих дней"}]
-  }
-]
-```
+No API key is accepted from the frontend. Response IDs, finish reasons and basic token usage are retained when supplied. Monetary costs are not fabricated. There is no LLM-as-judge, provider catalog, corporate VPN proxy, Responses API, or team collaboration layer.
 
-IDs must be unique nonempty strings (reserved object-property names are rejected). Variables are strings, numbers or booleans. The dataset accepts 1–500 tests. Templates use `{{variable}}`; live execution rejects missing variables. Historical runs retain their own dataset and prompt snapshots.
+## Source layout
 
-## Response import
+| Directory | Purpose |
+| --- | --- |
+| `web/` | Readable HTML/CSS/JS frontend and pure evaluation logic |
+| `server/api.mjs` | Hosted API, D1 queue, provider calls, persistence and exports |
+| `worker/index.ts` | Worker entrypoint; preserves Sites integration |
+| `app/` | Minimal Vinext page routing to the static frontend |
+| `db/schema.ts`, `drizzle/` | D1 schema and immutable generated migrations |
+| `scripts/sync-web.mjs` | Copies authored frontend to `public/app/` for build/preview |
+| `scripts/serve.mjs` | Optional legacy local runner; no cloud D1 behavior |
+| `tests/` | Unit/integration tests, including real SQLite and mocked model adapter |
+| `examples/` | Portable datasets and independent verification fixtures |
+| `launcher/` | GitHub Pages entrypoint opening the private hosted app |
 
-```json
-[
-  {
-    "id": "refund",
-    "a": {"text": "Через три дня", "latencyMs": 620},
-    "b": {"text": "В течение 10 рабочих дней", "latencyMs": 810, "cost": 0.001}
-  }
-]
-```
+`dist/` is generated build output. Do not edit it. `public/app/` is an ignored generated copy of `web/`.
 
-Partial runs are allowed; missing sides remain ungraded. An empty text is an actual empty response. For a failed request use `{"error":"Provider HTTP 429"}` instead of text. Unknown and duplicate IDs are rejected. Import is limited to 10 MB and 200,000 characters per answer. Up to 100 runs are retained.
+## Development
 
-## Optional live model runner
-
-The public/static version does not hold API keys or call models. To execute prompts, run the included Node server locally with an OpenAI-compatible Chat Completions endpoint. Keys remain in the server environment and are not stored in browser localStorage, Git, exports or responses.
-
-Create an ignored `evalbench/.env.local` file on your machine:
-
-```dotenv
-EVAL_API_KEY=your-provider-key
-EVAL_API_URL=https://api.openai.com/v1/chat/completions
-```
-
-Start with Node's built-in environment loader:
+Node >=22.13, pnpm 10.32.1. Install using the maintained Sites helper or `corepack pnpm install --frozen-lockfile` in a standalone checkout. Then:
 
 ```sh
-node --env-file=.env.local scripts/serve.mjs
+npm test
+npm run check
+npm run db:generate    # only after changing db/schema.ts
+npm run dev
+npm run build
 ```
 
-Set a valid model ID for each prompt in the app, save, then choose **Выполнить на моделях**. Requests incur your provider's charges. Both versions use the same provider/key. The runner sends each rendered template as a single user message, with provider defaults for sampling and output length. It does not use the Responses API, tools, multimodal input, or automatic LLM judging.
+The Sites skill owns managed preview and publication. Local and hosted D1 databases are separate. Apply the generated SQL migrations locally before testing the server; Sites applies them to the hosted database during publication.
 
-For PowerShell you can alternatively set `$env:EVAL_API_KEY` and `$env:EVAL_API_URL` before `npm start`. For a local compatible server, set `EVAL_ALLOW_HTTP=1` and an HTTP endpoint on `localhost` or `127.0.0.1`; otherwise HTTPS is required.
+For the dependency-free local-only frontend/runner:
 
-The runner binds only to loopback, validates Host/Origin, uses two concurrent requests, a 45-second per-request timeout and a 10-minute run budget. Maximum 50 tests per live run. Failed requests are retained explicitly. There are no automatic retries or cancellation UI; keep the tab open. Provider behavior is tested with a mock; no paid external calls were made during development.
+```sh
+npm run start:local
+```
 
-## Persistence and privacy
+This serves `web/` at http://127.0.0.1:3000. Supply local `EVAL_API_KEY`/`EVAL_API_URL` via an ignored environment file if needed. The legacy runner does not claim hosted persistence.
 
-Workspace data stays in this browser and origin under `evalbench.workspace.v1`. There is no cloud database or team sync. Different domains, browsers, incognito sessions and devices have separate workspaces. Clearing browser storage removes data; export backups regularly. Storage errors produce a visible warning. Workspace import explicitly confirms replacement and offers an export first. Avoid confidential material on shared devices. Treat imported responses as text; they are escaped before rendering. CSV export guards against leading spreadsheet formula characters.
+## Data format and grading
 
-## Deploy to GitHub Pages
+Dataset: array of `{id,title,slice,vars,reference,rules}` with unique IDs and scalar variables. Templates use `{{variable}}`; server execution rejects missing variables. Rules: `contains`/`notContains` (case-insensitive), `exact` (case-sensitive after trim), strict `json`, and whitespace-based `maxWords`.
 
-`dist/` is a self-contained static site using relative asset paths. The repository includes `.github/workflows/evalbench-pages.yml`, which checks tests and publishes this directory after pushes to `main`.
+Response import: `[{"id":"case-id","a":{"text":"baseline"},"b":{"text":"candidate"}}]`. Error objects use `{"error":"Provider HTTP 429"}`. Optional nonnegative `latencyMs` and `cost` are supported. Missing responses and rule-free tests are ungraded.
 
-GitHub Pages is already enabled in this repository. Both the validation and deployment jobs succeeded. The root URL works for the existing branch-based Pages build (redirect to the subproject) and for the included static deployment workflow (app at root). If moving to a new repository, an administrator must enable Pages first; the default `GITHUB_TOKEN` cannot enable it. The local runner cannot execute on GitHub Pages.
+A case passes only if every rule passes. A regression is A pass → B fail. Release requires complete graded A/B coverage, B pass rate above threshold, and no regressions. Human review is independent and never overrides automatic grading. Rules are checks against declared conditions, not proof of overall correctness.
 
-The root `index.html` links/redirects to `evalbench/dist/` for branch-based Pages hosting as well. Do not assume Pages is live until a deployment succeeds.
+## Access and privacy
 
-## For coding agents
+This is a **single-owner, private Sites workspace**. Sites dispatch enforces access before the Worker. Authorized service access and the owner use the same workspace. Do not publish this backend publicly or expand its audience without adding appropriate user-level authorization and tenancy. There is no separately scaffolded OAuth stack.
 
-Read `AGENTS.md` and `ARCHITECTURE.md`. Run `npm test` and `npm run check` from `evalbench/`. All application code, examples and tests are plain-text files committed to GitHub. No generated bundle hides source code. Preserve workspace format version 1 or add an explicit migration when changing persisted data.
+API calls reject cross-origin writes, validate inputs and use prepared SQL. Secrets are server configuration only, omitted from run snapshots, client bundles and exports. Imported text is HTML-escaped. CSV guards against formula injection. Active runs can be archived and restored; there is no permanent-delete endpoint.
 
-### Validation
-
-17 Node tests cover grading, regressions, incomplete coverage, data import, CSV export, local server origin checks and mocked A/B execution. Syntax checks pass. The managed local preview failed to mount `/proc`. After GitHub Pages deployed successfully, browser QA verified the actual deployed UI: overview, two-regression filter, per-case rule/answer dialog, blind review, persistence of a vote after reload, and prompt saving. Paid provider execution was not tested; the runner uses mocked provider tests.
-
-
-See [VERIFICATION.md](VERIFICATION.md) for the independent eight-case pipeline, expected/observed results and explicit unverified areas. Reproducible input files are in `examples/verification-*.json`.
+Read [AGENTS.md](AGENTS.md) and [ARCHITECTURE.md](ARCHITECTURE.md) before editing.

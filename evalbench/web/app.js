@@ -1,0 +1,274 @@
+import { uid, template, validateCases, evaluate, stats, transition, gate, normalizeResults, csv, runCsv } from './core.js';
+import { cases as seedCases, prompts as seedPrompts, demoResults } from './demo.js';
+const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const KEY = 'evalbench.workspace.v1';
+function initial() { return { version: 1, cases: structuredClone(seedCases), prompts: structuredClone(seedPrompts), runs: [{ id: uid(), name: 'Support assistant · demo', createdAt: new Date().toISOString(), demo: true, cases: structuredClone(seedCases), prompts: structuredClone(seedPrompts), results: demoResults(), reviews: {} }], threshold: 90 }; }
+let state = initial(), storageWarning = '';
+function validatePrompts(p) { for (const k of ['a', 'b'])
+    if (typeof p?.[k]?.text !== 'string' || typeof p[k].name !== 'string')
+        throw Error('Нужны две версии промптов.'); }
+function validateWorkspace(s) { if (s?.version !== 1 || !Array.isArray(s.runs) || s.runs.length > 100 || !Number.isFinite(s.threshold) || s.threshold < 0 || s.threshold > 100)
+    throw Error('Неверный формат workspace.'); validateCases(s.cases); validatePrompts(s.prompts); for (const r of s.runs) {
+    if (!r.id || !r.name || !r.createdAt)
+        throw Error('Повреждённый прогон.');
+    validateCases(r.cases);
+    validatePrompts(r.prompts);
+    r.results = normalizeResults(Object.entries(r.results || {}).map(([id, x]) => ({ id, ...x })), r.cases);
+    if (!r.reviews || typeof r.reviews !== 'object')
+        r.reviews = {};
+} }
+try {
+    const saved = localStorage.getItem(KEY);
+    if (saved) {
+        const s = JSON.parse(saved);
+        validateWorkspace(s);
+        state = s;
+    }
+}
+catch {
+    storageWarning = 'Не удалось прочитать сохранение. Загружен пример; исходные данные не перезаписаны.';
+}
+let view = 'overview', activeRun = state.runs[0]?.id, filter = 'all', slice = 'all', query = '', blind = true, reviewIndex = 0, busy = false, apiAvailable = false, serverMode = false, serverInfo = null, stopRequested = false;
+function persist() { try {
+    localStorage.setItem(KEY, JSON.stringify({ ...state, runs: state.runs.filter(r => !r.stub) }));
+    storageWarning = '';
+}
+catch {
+    storageWarning = 'Хранилище браузера недоступно или заполнено. Экспортируйте workspace, чтобы сохранить работу.';
+    toast(storageWarning);
+} }
+function toast(s) { $('#toast').textContent = s; $('#toast').classList.add('show'); clearTimeout(toast.timer); toast.timer = setTimeout(() => $('#toast').classList.remove('show'), 4500); }
+function download(name, text, type = 'application/json') { const url = URL.createObjectURL(new Blob([text], { type })); const a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
+const run = () => state.runs.find(r => r.id === activeRun && !r.stub) || state.runs.find(r => !r.stub), pct = x => x === null ? '—' : Math.round(x * 100) + '%';
+const icons = { overview: '◫', cases: '☷', prompts: '⌘', review: '◈', history: '↺' }, names = { overview: 'Обзор оценки', cases: 'Набор тестов', prompts: 'Промпты', review: 'Слепое сравнение', history: 'История прогонов' };
+function statCard(label, value, sub, tone = '') { return `<div class="stat"><span>${label}</span><strong class="${tone}">${value}</strong><small>${sub}</small></div>`; }
+function render() { const r = run(); $('#app').innerHTML = `<aside><a class="brand" href="#"><b>e<span>∴</span></b><div>EvalBench<small>PROMPT ENGINEERING LAB</small></div></a><div class="workspace"><span class="workspace-icon">P</span><div>Personal workspace<small>${serverMode ? 'Сервер подключён' : 'Локальное хранение'}</small></div><span class="local-dot"></span></div><p class="nav-label">ЛАБОРАТОРИЯ</p><nav>${Object.entries(names).map(([k, n]) => `<button data-nav="${k}" aria-label="${n}" class="${view === k ? 'active' : ''}"><i>${icons[k]}</i>${n}${k === 'cases' ? `<em>${state.cases.length}</em>` : ''}</button>`).join('')}</nav><div class="aside-bottom"><div class="privacy"><span>◉</span><div>Ваши данные — у вас<small>${serverMode ? 'Серверные прогоны хранятся в базе.<br>Локальные данные — в браузере.' : 'Сохраняются в этом браузере.<br>Для переноса используйте экспорт.'}</small></div></div><button class="ghost full" id="workspace-export">↓ Экспорт workspace</button><button class="text-button full" id="workspace-import">Импорт workspace</button><a class="source-link" href="https://github.com/codexactivities/repo1/tree/main/evalbench" target="_blank" rel="noreferrer">Исходный код ↗</a></div></aside><main><header><div class="breadcrumb">Лаборатория <span>/</span> ${names[view]}</div><span class="version">v2.0 <span>${serverMode ? 'SERVER CONNECTED' : 'LOCAL FIRST'}</span></span></header><div class="content">${storageWarning ? `<div class="alert">${esc(storageWarning)}</div>` : ''}<div class="page-title"><div><p class="eyebrow">${view === 'overview' ? 'MEASURE. COMPARE. IMPROVE.' : 'EVALBENCH / WORKSPACE'}</p><h1>${names[view]}</h1><p class="subtitle">${({ overview: 'От хорошего ответа — к проверяемому качеству.', cases: 'Реальные сценарии. Явные ожидания. Повторяемые проверки.', prompts: 'Один набор тестов — две версии вашего промпта.', review: 'Оцените качество ответа до того, как узнаете версию.', history: 'Каждый прогон хранит снимок промптов, тестов и результатов.' })[view]}</p></div><button class="primary" id="new-run" ${busy ? 'disabled' : ''}>${busy ? 'Выполняется…' : '▶ Новый прогон'}</button></div>${serverMode ? serverBanner() : ''}${view === 'overview' ? overview(r) : view === 'cases' ? dataset() : view === 'prompts' ? promptView() : view === 'review' ? review(r) : history()}<footer><span>EvalBench · Решения на основе тестов</span><span>Данные сохраняются автоматически</span></footer><div class="mobile-transfer"><button class="text-button" id="mobile-export">↓ Экспорт workspace</button><button class="text-button" id="mobile-import">↑ Импорт workspace</button></div></div></main>`; bind(); }
+function runSelect(r) { return `<select id="run-select" aria-label="Выбрать прогон">${state.runs.map(x => `<option value="${esc(x.id)}" ${x.id === r?.id ? 'selected' : ''}>${esc(x.name)}${x.demo ? ' · ДЕМО' : ''}</option>`).join('')}</select>`; }
+function empty(title, text) { return `<section class="panel empty"><div>◫</div><h2>${title}</h2><p>${text}</p></section>`; }
+function overview(r) { if (!r)
+    return empty('Пока нет прогонов', 'Создайте первый прогон или импортируйте ответы моделей.'); const a = stats(r, 'a'), b = stats(r, 'b'), g = gate(r, state.threshold), delta = a.rate !== null && b.rate !== null && a.done === a.total && b.done === b.total && a.graded === b.graded ? Math.round((b.rate - a.rate) * 100) : null; return `<div class="run-bar"><div class="run-label"><span class="status-dot"></span>${runSelect(r)}<span class="tag">${r.provider === 'synthetic' ? 'Сервер · синтетика' : r.demo ? 'Демо · готовые ответы' : r.cloud ? 'Сервер · ' + (r.provider === 'model' ? 'модель' : 'импорт') : 'Импортированные данные'}</span></div><button class="ghost" id="export-run">↓ Экспорт результатов</button></div>${r.demo ? `<div class="demo-note"><span>i</span> ${r.provider === 'synthetic' ? 'Задания этого прогона выполнены сервером с синтетическими ответами. Реальная модель не вызывалась.' : 'Демонстрационный прогон: ответы подготовлены заранее.'}</div>` : ''}${r.cloud && r.status === 'running' ? `<div class="info-banner"><div><b>Прогон: ${r.progress.done}/${r.progress.total} ответов</b><p>Каждый готовый ответ сохранён на сервере.</p></div><button id="resume-run" class="primary" ${busy ? 'disabled' : ''}>Продолжить</button>${busy ? '<button id="pause-run" class="ghost">Пауза</button>' : ''}</div>` : ''}<div class="stats">${statCard('Успешность candidate', pct(b.rate), `${b.passed} из ${b.graded} оценённых тестов`, b.rate >= .9 ? 'green' : '')}${statCard('Изменение к baseline', delta === null ? '—' : `${delta > 0 ? '+' : ''}${delta} п.п.`, `Baseline: ${pct(a.rate)} · ${a.graded} оценено`, delta > 0 ? 'green' : '')}${statCard('Регрессии', g.regressions, 'Проходили в A, не проходят в B', g.regressions ? 'red' : 'green')}${statCard('Покрытие ответами', `${b.done}/${b.total}`, `${b.graded} тестов с автоматическими правилами`)}</div><div class="summary-grid"><section class="panel chart-panel"><div class="panel-heading"><div><h2>Качество по срезам</h2><p>Доля тестов, прошедших все правила</p></div><div class="legend"><span><i class="a"></i>Baseline</span><span><i class="b"></i>Candidate</span></div></div><div class="slice-chart">${[...new Set(r.cases.map(c => c.slice))].map(s => { const sa = stats(r, 'a', s), sb = stats(r, 'b', s); return `<div class="chart-row"><span>${esc(s)}</span><div><div class="bar-track"><div class="bar a" style="width:${(sa.rate || 0) * 100}%"></div></div><div class="bar-track"><div class="bar b" style="width:${(sb.rate || 0) * 100}%"></div></div></div><b>${pct(sb.rate)}</b></div>`; }).join('')}</div></section><section class="panel gate-panel"><div class="panel-heading"><h2>Release gate</h2><span class="tag">B → production</span></div><div class="gate-icon ${g.state}">${g.state === 'pass' ? '✓' : g.state === 'fail' ? '!' : '…'}</div><h3>${g.label}</h3><p>Порог ≥ ${state.threshold}%, без регрессий.<br>Обе версии должны иметь ответ и правило.</p><div class="threshold-row"><label for="threshold">Порог успешности</label><div><input id="threshold" type="number" min="0" max="100" value="${state.threshold}"><span>%</span></div></div></section></div><section class="panel results-panel"><div class="panel-heading"><div><h2>Результаты по тестам <span class="count">${r.cases.length}</span></h2><p>Откройте строку, чтобы сравнить ответы и проверки</p></div><button class="text-button" id="go-review">Слепое сравнение ↗</button></div><div class="table-tools"><div class="tabs">${[['all', 'Все тесты'], ['regression', 'Регрессии'], ['failure', 'Ошибки B'], ['improvement', 'Улучшения']].map(([k, l]) => `<button data-filter="${k}" class="${filter === k ? 'selected' : ''}">${l}</button>`).join('')}</div><div class="search-group"><input id="search" placeholder="Поиск теста…" aria-label="Поиск теста" value="${esc(query)}"><select id="slice" aria-label="Срез"><option value="all">Все срезы</option>${[...new Set(r.cases.map(c => c.slice))].map(s => `<option ${slice === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></div></div><div id="result-table">${table(r)}</div></section><div class="metrics-note">${b.latency !== null ? `Средняя задержка B: ${Math.round(b.latency)} мс` : 'Задержка: нет измерений'} <span>·</span> ${b.cost !== null ? `Стоимость B: $${b.cost.toFixed(4)}` : 'Стоимость: не указана'} <span>·</span> Правила измеряют соблюдение условий, а не полное качество ответа.</div>`; }
+function badge(r, c, side) { const x = r.results[c.id]?.[side]; if (x?.error)
+    return '<span class="badge fail">Ошибка</span>'; const e = evaluate(x?.text, c.rules); return `<span class="badge ${e.pass === true ? 'pass' : e.pass === false ? 'fail' : 'pending'}">${e.pass === true ? '✓ Pass' : e.pass === false ? '× Fail' : typeof x?.text === 'string' ? 'Без правил' : 'Нет ответа'}</span>`; }
+function table(r) { const list = r.cases.filter(c => { const t = transition(r, c); return (filter === 'all' || t === filter || (filter === 'failure' && ['regression', 'error'].includes(t))) && (slice === 'all' || c.slice === slice) && `${c.id} ${c.title}`.toLowerCase().includes(query.toLowerCase()); }); return `<div class="table-scroll"><table><thead><tr><th>ТЕСТ / СЦЕНАРИЙ</th><th>СРЕЗ</th><th>BASELINE A</th><th>CANDIDATE B</th><th>ИЗМЕНЕНИЕ</th><th></th></tr></thead><tbody>${list.map(c => { const t = transition(r, c); return `<tr data-case="${esc(c.id)}" tabindex="0" role="button" aria-label="Открыть тест ${esc(c.title)}"><td><strong>${esc(c.title)}</strong><small>${esc(c.id)}</small></td><td><span class="slice-tag">${esc(c.slice)}</span></td><td>${badge(r, c, 'a')}</td><td>${badge(r, c, 'b')}</td><td><span class="change ${t}">${({ regression: '↘ Регрессия', improvement: '↗ Улучшение', failure: 'Требует внимания', pass: 'Без регрессии', ungraded: 'Не оценён', error: 'Ошибка запроса' })[t]}</span></td><td>↗</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty-cell">Нет тестов с такими условиями.</td></tr>'}</tbody></table></div>`; }
+function ruleLabel(r) { return ({ contains: 'Содержит', notContains: 'Не содержит', exact: 'Точное совпадение', json: 'Валидный JSON', maxWords: 'Макс. слов' })[r.type] + (r.value !== undefined ? ' · ' + r.value : ''); }
+function dataset() { return `<div class="info-banner"><div><b>Тесты — источник истины</b><p>Переменные подставляются в {{question}} и {{context}}. У каждого теста свои правила.</p></div><button class="ghost" id="edit-dataset">Редактор JSON</button></div><section class="panel"><div class="panel-heading"><div><h2>Evaluation dataset <span class="count">${state.cases.length}</span></h2><p>Редактирование не меняет сохранённые прогоны</p></div><div class="button-group"><button class="ghost" id="export-cases">↓ JSON</button><button class="ghost" id="import-cases">↑ Импорт</button><button class="primary small" id="add-case">+ Добавить тест</button></div></div><div class="table-scroll"><table><thead><tr><th>СЦЕНАРИЙ</th><th>СРЕЗ</th><th>ПРАВИЛА</th><th></th></tr></thead><tbody>${state.cases.map(c => `<tr><td><strong>${esc(c.title)}</strong><small>${esc(String(c.vars.question || Object.values(c.vars)[0] || c.id).slice(0, 100))}</small></td><td><span class="slice-tag">${esc(c.slice)}</span></td><td>${c.rules.map(ruleLabel).map(x => `<span class="rule-tag">${esc(x)}</span>`).join(' ') || 'Без правил'}</td><td><button class="text-button" data-edit-case="${esc(c.id)}">Изменить</button></td></tr>`).join('')}</tbody></table></div></section>`; }
+function promptView() { return `<div class="prompt-grid">${['a', 'b'].map(s => `<section class="panel prompt-card"><div class="panel-heading"><h2><span class="version-letter ${s}">${s.toUpperCase()}</span> ${s === 'a' ? 'Baseline' : 'Candidate'}</h2><span class="tag">${s === 'a' ? 'Контроль' : 'Эксперимент'}</span></div><label>Название версии<input id="name-${s}" value="${esc(state.prompts[s].name)}" maxlength="120"></label><label>Модель провайдера<input id="model-${s}" value="${esc(state.prompts[s].model || '')}" placeholder="ID модели у вашего провайдера"></label><label>Шаблон промпта<textarea id="prompt-${s}" rows="13" spellcheck="false">${esc(state.prompts[s].text)}</textarea></label><div class="prompt-meta"><span>${state.prompts[s].text.length} символов</span><span>{{variable}} → значение из теста</span></div></section>`).join('')}</div><div class="prompt-actions"><p>Тексты сохраняются по кнопке. Прогоны содержат собственные снимки версий.</p><button class="primary" id="save-prompts">Сохранить версии</button></div><section class="panel preview-panel"><div class="panel-heading"><div><h2>Предпросмотр подстановки</h2><p>Проверка шаблона на первом тесте набора</p></div></div><div class="prompt-grid">${['a', 'b'].map(s => `<div><span class="eyebrow">ВЕРСИЯ ${s.toUpperCase()}</span><pre>${esc(template(state.prompts[s].text, state.cases[0].vars))}</pre></div>`).join('')}</div></section>`; }
+function review(r) { if (!r)
+    return empty('Нет ответов для оценки', 'Сначала создайте прогон.'); const cs = r.cases.filter(c => typeof r.results[c.id]?.a?.text === 'string' && typeof r.results[c.id]?.b?.text === 'string'); if (!cs.length)
+    return empty('Нужны ответы обеих версий', 'Импортируйте A и B для одного теста.'); reviewIndex = Math.min(reviewIndex, cs.length - 1); const c = cs[reviewIndex], flip = [...c.id + r.id].reduce((s, x) => s + x.charCodeAt(0), 0) % 2 === 1, sides = flip ? ['b', 'a'] : ['a', 'b'], rev = r.reviews[c.id] || {}; return `<div class="run-bar"><div>${runSelect(r)} <span class="tag">${Object.values(r.reviews).filter(x => x.winner).length} оценено</span></div><label class="toggle"><input id="blind" type="checkbox" ${blind ? 'checked' : ''}> Скрывать версии</label></div><div class="review-context"><div class="eyebrow">ТЕСТ ${reviewIndex + 1} / ${cs.length} · ${esc(c.slice)}</div><h2>${esc(c.title)}</h2><p>${esc(c.vars.question || JSON.stringify(c.vars))}</p><details><summary>Контекст и эталон</summary><pre>${esc(c.reference || JSON.stringify(c.vars, null, 2))}</pre></details></div><div class="prompt-grid">${sides.map((s, i) => `<section class="panel answer-card"><div class="panel-heading"><h2>Ответ ${i + 1}</h2><span class="tag">${blind ? 'Версия скрыта' : esc(r.prompts[s].name)}</span></div><pre>${esc(r.results[c.id][s].text)}</pre></section>`).join('')}</div><section class="panel review-controls"><h2>Какой ответ лучше?</h2><p>Ориентируйтесь на точность, полноту и полезность. Порядок ответов перемешан и сохраняется для этого прогона.</p><div class="vote-options">${[[sides[0], '← Ответ 1'], ['tie', 'Ничья'], [sides[1], 'Ответ 2 →'], ['skip', 'Пропустить']].map(([s, l]) => `<button class="${rev.winner === s ? 'primary' : 'ghost'}" data-vote="${s}" data-review-case="${esc(c.id)}">${l}</button>`).join('')}</div><label>Комментарий к оценке<textarea id="review-note" data-id="${esc(c.id)}" rows="2" placeholder="Что повлияло на вашу оценку?">${esc(rev.note || '')}</textarea></label><div class="review-nav"><button class="ghost" id="prev-review" ${reviewIndex === 0 ? 'disabled' : ''}>← Предыдущий</button><span>${reviewIndex + 1} / ${cs.length}</span><button class="ghost" id="next-review" ${reviewIndex === cs.length - 1 ? 'disabled' : ''}>Следующий →</button></div></section>`; }
+function history() { return `<section class="panel"><div class="panel-heading"><div><h2>Сохранённые прогоны</h2><p>Серверные записи можно открыть с другого устройства</p></div>${serverMode ? '<button class="ghost" id="show-archive">Архив</button>' : ''}</div>${state.runs.map(r => { const b = r.stub ? r.summary.b : stats(r, 'b'), a = r.stub ? r.summary.a : stats(r, 'a'), reg = r.stub ? r.summary.regressions : gate(r).regressions; const complete = b.done === b.total && b.graded === b.total && a.done === a.total && a.graded === a.total; const g = { state: !complete ? 'pending' : b.rate * 100 >= state.threshold && reg === 0 ? 'pass' : 'fail', label: !complete ? 'Недостаточно данных' : b.rate * 100 >= state.threshold && reg === 0 ? 'Можно выпускать' : 'Нужна доработка' }; return `<div class="history-row"><div class="history-icon">◫</div><div><b>${esc(r.name)}</b><small>${new Date(r.createdAt).toLocaleString('ru-RU')} · ${b.total} тестов · ${r.cloud ? 'сервер' : 'браузер'} ${r.status === 'running' ? `· ${r.progress.done}/${r.progress.total} ответов` : ''} ${r.demo ? '· синтетика' : ''}</small></div><span class="history-rate">${pct(b.rate)}</span><span class="badge ${g.state === 'pass' ? 'pass' : g.state === 'fail' ? 'fail' : 'pending'}">${g.label}</span><button class="ghost" data-open-run="${esc(r.id)}">Открыть ↗</button><button class="text-button danger" data-delete-run="${esc(r.id)}" aria-label="${r.cloud ? 'Архивировать' : 'Удалить'} прогон ${esc(r.name)}">×</button></div>`; }).join('') || empty('Прогонов пока нет', 'Создайте прогон, чтобы начать сравнение.')}</section>`; }
+function modal(title, body, fn) { const d = $('#modal'); d.innerHTML = `<div class="modal-heading"><h2>${title}</h2><button class="close" aria-label="Закрыть">×</button></div><div class="modal-body">${body}</div>`; d.querySelector('.close').onclick = () => { if (busy)
+    return toast('Дождитесь завершения прогона.'); d.close(); }; if (!d.open)
+    d.showModal(); fn?.(d); }
+$('#modal').addEventListener('cancel', e => { if (busy)
+    e.preventDefault(); });
+function caseDetail(id) { const r = run(), c = r.cases.find(c => c.id === id); modal(esc(c.title), `<p class="eyebrow">${esc(c.id)} · ${esc(c.slice)}</p><details open><summary>Входные данные</summary><pre>${esc(JSON.stringify(c.vars, null, 2))}</pre></details><div class="prompt-grid">${['a', 'b'].map(s => { const x = r.results[c.id]?.[s], e = evaluate(x?.text, c.rules); return `<section class="answer-detail"><h3>${esc(r.prompts[s].name)} ${badge(r, c, s)}</h3><pre>${esc(x?.error || x?.text || 'Нет ответа')}</pre><div class="checks">${e.checks.map(k => `<p class="${k.pass ? 'green' : 'red'}">${k.pass ? '✓' : '×'} ${esc(ruleLabel(k))}</p>`).join('')}</div><details><summary>Отправленный промпт</summary><pre>${esc(template(r.prompts[s].text, c.vars))}</pre></details></section>`; }).join('')}</div>`); }
+function editCase(id) { const existing = state.cases.find(c => c.id === id), c = existing || { id: 'test-' + uid().slice(0, 8), title: 'Новый сценарий', slice: 'Общее', vars: { question: '', context: '' }, reference: '', rules: [{ type: 'contains', value: 'ожидаемый текст' }] }; modal(existing ? 'Изменить тест' : 'Новый тест', `<label>Тест в формате JSON<textarea id="case-json" rows="19" spellcheck="false">${esc(JSON.stringify(c, null, 2))}</textarea></label><p class="help">Правила: contains, notContains, exact, json, maxWords. Регистр учитывается только в exact.</p><p class="form-error" role="alert"></p><div class="modal-actions">${existing ? '<button class="ghost danger" id="remove-case">Удалить тест</button>' : ''}<button class="primary" id="save-case">Сохранить тест</button></div>`, d => { d.querySelector('#save-case').onclick = () => { try {
+    const next = JSON.parse(d.querySelector('#case-json').value), cases = state.cases.filter(x => x.id !== id);
+    cases.splice(existing ? state.cases.findIndex(x => x.id === id) : cases.length, 0, next);
+    state.cases = validateCases(cases);
+    persist();
+    d.close();
+    render();
+    toast('Тест сохранён');
+}
+catch (e) {
+    d.querySelector('.form-error').textContent = e.message;
+} }; if (existing)
+    d.querySelector('#remove-case').onclick = () => { if (state.cases.length === 1)
+        return toast('В наборе должен остаться хотя бы один тест.'); state.cases = state.cases.filter(x => x.id !== id); persist(); d.close(); render(); }; }); }
+function jsonEditor() { modal('Редактор набора тестов', `<label>JSON-массив тестов<textarea id="dataset-json" rows="21" spellcheck="false">${esc(JSON.stringify(state.cases, null, 2))}</textarea></label><p class="form-error" role="alert"></p><div class="modal-actions"><button class="primary" id="save-dataset">Сохранить набор</button></div>`, d => d.querySelector('#save-dataset').onclick = () => { try {
+    state.cases = validateCases(JSON.parse(d.querySelector('#dataset-json').value));
+    persist();
+    d.close();
+    render();
+    toast('Набор обновлён');
+}
+catch (e) {
+    d.querySelector('.form-error').textContent = e.message;
+} }); }
+async function readJson(file) { if (file.size > 10000000)
+    throw Error('Файл должен быть меньше 10 МБ.'); return JSON.parse(await file.text()); }
+function pickFile(fn) { const f = document.createElement('input'); f.type = 'file'; f.accept = '.json,application/json'; f.onchange = async () => { if (!f.files[0])
+    return; try {
+    await fn(await readJson(f.files[0]));
+}
+catch (e) {
+    toast(e.message);
+} }; f.click(); }
+function addRun(x) { if (state.runs.length >= 100)
+    throw Error('Лимит: 100 прогонов. Экспортируйте и удалите старые.'); const r = { ...x, id: uid(), createdAt: new Date().toISOString(), reviews: {} }; state.runs.unshift(r); activeRun = r.id; view = 'overview'; filter = 'all'; slice = 'all'; query = ''; persist(); render(); }
+function newRun() { modal('Новый evaluation run', `<label>Название<input id="run-name" value="Experiment ${state.runs.length + 1}" maxlength="120"></label><label>Лимит ответа модели, токены<input id="max-tokens" type="number" min="16" max="2048" value="512"></label><div class="run-options"><button id="import-results"><b>↑ Импорт ответов</b><span>JSON с ответами A/B; в серверной версии результат сохраняется в базе</span></button><button id="paste-results"><b>⌘ Вставить JSON</b><span>Быстрый импорт ответов из буфера обмена</span></button><button id="live-run" ${apiAvailable ? '' : 'disabled'}><b>▶ Выполнить на моделях</b><span>${apiAvailable ? 'API-ключ настроен на сервере. Будут отправлены до ' + state.cases.length * 2 + ' платных запросов.' : 'На сервере ещё не настроен API-ключ провайдера. Реальные вызовы недоступны.'}</span></button>${serverMode ? '<button id="synthetic-run"><b>✓ Проверить сервер на синтетике</b><span>8 независимых тестов, 16 серверных заданий, две ожидаемые регрессии. API модели не вызывается.</span></button>' : ''}<button id="demo-run"><b>◫ Локальная демонстрация</b><span>12 подготовленных ответов. Это не серверный запуск.</span></button></div><details><summary>Формат импорта</summary><pre>[{"id":"refund","a":{"text":"Ответ A"},"b":{"text":"Ответ B"}}]</pre><button class="text-button" id="download-template">Скачать шаблон ↓</button></details><p class="form-error" role="alert"></p>`, d => { const name = () => d.querySelector('#run-name').value.trim() || 'Untitled experiment'; const importData = async (data, runName) => { const results = normalizeResults(data, state.cases); if (serverMode) {
+    const result = await api('/api/runs', { method: 'POST', body: { id: uid(), provider: 'import', name: runName, cases: state.cases, prompts: state.prompts, results: Object.entries(results).map(([id, v]) => ({ id, ...v })) } });
+    acceptCloudRun(result.run);
+    view = 'overview';
+    render();
+}
+else
+    addRun({ name: runName, cases: structuredClone(state.cases), prompts: structuredClone(state.prompts), results }); d.close(); }; d.querySelector('#import-results').onclick = () => pickFile(data => importData(data, name())); d.querySelector('#paste-results').onclick = () => { const runName = name(); modal('Импорт ответов JSON', '<label>Ответы A/B<textarea id="pasted-results" rows="14" spellcheck="false"></textarea></label><p class="form-error" role="alert"></p><div class="modal-actions"><button class="primary" id="save-pasted">Импортировать</button></div>', m => { m.querySelector('#save-pasted').onclick = async () => { try {
+    await importData(JSON.parse(m.querySelector('#pasted-results').value), runName);
+}
+catch (e) {
+    m.querySelector('.form-error').textContent = e.message;
+} }; }); }; d.querySelector('#download-template').onclick = () => download('evalbench-responses-template.json', JSON.stringify(state.cases.map(c => ({ id: c.id, a: { text: '' }, b: { text: '' } })), null, 2)); d.querySelector('#demo-run').onclick = () => { addRun({ name: name() + ' · demo', demo: true, cases: structuredClone(seedCases), prompts: structuredClone(seedPrompts), results: demoResults() }); d.close(); }; const start = async (provider) => { try {
+    if (busy)
+        return;
+    if (provider === 'model' && ['a', 'b'].some(s => !state.prompts[s].model?.trim()))
+        throw Error('Укажите и сохраните модели обеих версий на странице «Промпты».');
+    if (provider === 'model' && state.cases.length > 50)
+        throw Error('Максимум 50 тестов за один прогон.');
+    const maxTokens = Number(d.querySelector('#max-tokens').value);
+    d.querySelectorAll('.run-options button').forEach(b => b.disabled = true);
+    if (serverMode) {
+        const result = await api('/api/runs', { method: 'POST', body: { id: uid(), provider, name: name(), cases: state.cases, prompts: state.prompts, maxTokens } });
+        acceptCloudRun(result.run);
+        view = 'overview';
+        d.close();
+        await driveRun(result.run.id);
+    }
+    else {
+        busy = true;
+        const snapshot = { name: name(), cases: structuredClone(state.cases), prompts: structuredClone(state.prompts) };
+        const data = await api('/api/run', { method: 'POST', body: snapshot });
+        addRun({ ...snapshot, results: normalizeResults(data.results, snapshot.cases) });
+        d.close();
+        busy = false;
+        render();
+    }
+}
+catch (e) {
+    busy = false;
+    d.querySelector('.form-error').textContent = e.message;
+    d.querySelectorAll('.run-options button').forEach(b => b.disabled = false);
+} }; d.querySelector('#live-run').onclick = () => start('model'); d.querySelector('#synthetic-run')?.addEventListener('click', () => start('synthetic')); }); }
+function exportRun() { const r = run(); modal('Экспорт результатов', '<p>JSON содержит снимок прогона; CSV — ответы, оценки и комментарии.</p><div class="modal-actions"><button class="ghost" id="download-csv">Скачать CSV</button><button class="primary" id="download-json">Скачать JSON</button></div>', d => { for (const format of ['csv', 'json'])
+    d.querySelector('#download-' + format).onclick = () => { if (r.cloud) {
+        const a = document.createElement('a');
+        a.href = '/api/runs/' + encodeURIComponent(r.id) + '/export?format=' + format;
+        a.download = '';
+        a.click();
+    }
+    else
+        download('evalbench-run.' + format, format === 'csv' ? runCsv(r) : JSON.stringify(r, null, 2), format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json'); }; }); }
+function importWorkspace() { pickFile(s => { validateWorkspace(s); modal('Заменить текущий workspace?', `<p>Будут загружены ${s.cases.length} тестов и ${s.runs.length} прогонов. Экспортируйте текущие данные, если хотите их сохранить.</p><div class="modal-actions"><button class="ghost" id="backup-first">Экспортировать текущий</button><button class="primary" id="confirm-import">Заменить workspace</button></div>`, d => { d.querySelector('#backup-first').onclick = () => download('evalbench-backup.json', JSON.stringify(state, null, 2)); d.querySelector('#confirm-import').onclick = () => { state = s; activeRun = s.runs[0]?.id; filter = 'all'; slice = 'all'; query = ''; persist(); d.close(); render(); toast('Workspace импортирован'); }; }); }); }
+function bind() { $('#resume-run')?.addEventListener('click', () => driveRun(run().id)); $('#pause-run')?.addEventListener('click', () => { stopRequested = true; toast('Новые задания остановятся после текущих запросов.'); }); $('#show-archive')?.addEventListener('click', showArchive); document.querySelectorAll('[data-nav]').forEach(b => b.onclick = () => { view = b.dataset.nav; render(); }); $('#new-run').onclick = newRun; $('#workspace-export').onclick = () => download('evalbench-workspace.json', JSON.stringify(state, null, 2)); $('#workspace-import').onclick = importWorkspace; $('#mobile-export').onclick = $('#workspace-export').onclick; $('#mobile-import').onclick = importWorkspace; $('#run-select')?.addEventListener('change', e => { reviewIndex = 0; openRun(e.target.value, view); }); $('#export-run')?.addEventListener('click', exportRun); $('#threshold')?.addEventListener('change', e => { const v = Number(e.target.value); if (!Number.isFinite(v) || v < 0 || v > 100) {
+    toast('Порог должен быть от 0 до 100.');
+    render();
+    return;
+} state.threshold = v; persist(); render(); }); document.querySelectorAll('[data-filter]').forEach(b => b.onclick = () => { filter = b.dataset.filter; render(); }); function updateTable() { $('#result-table').innerHTML = table(run()); bindRows(); } $('#search')?.addEventListener('input', e => { query = e.target.value; updateTable(); }); $('#slice')?.addEventListener('change', e => { slice = e.target.value; updateTable(); }); bindRows(); $('#go-review')?.addEventListener('click', () => { view = 'review'; render(); }); $('#edit-dataset')?.addEventListener('click', jsonEditor); $('#add-case')?.addEventListener('click', () => editCase()); document.querySelectorAll('[data-edit-case]').forEach(b => b.onclick = () => editCase(b.dataset.editCase)); $('#export-cases')?.addEventListener('click', () => download('evalbench-dataset.json', JSON.stringify(state.cases, null, 2))); $('#import-cases')?.addEventListener('click', () => pickFile(data => { state.cases = validateCases(data); persist(); render(); toast('Набор импортирован'); })); $('#save-prompts')?.addEventListener('click', () => { for (const s of ['a', 'b'])
+    state.prompts[s] = { name: $('#name-' + s).value.trim() || s.toUpperCase(), model: $('#model-' + s).value.trim(), text: $('#prompt-' + s).value }; persist(); render(); toast('Обе версии сохранены'); }); $('#blind')?.addEventListener('change', e => { blind = e.target.checked; render(); }); document.querySelectorAll('[data-vote]').forEach(b => b.onclick = () => { const r = run(), id = b.dataset.reviewCase; r.reviews[id] = { ...r.reviews[id], winner: b.dataset.vote }; persist(); if (r.cloud)
+    saveReview(r, id, { winner: b.dataset.vote }); render(); }); $('#review-note')?.addEventListener('input', e => { const r = run(), id = e.target.dataset.id; r.reviews[id] = { ...r.reviews[id], note: e.target.value }; persist(); if (r.cloud)
+    queueReview(r, id, e.target.value); }); $('#prev-review')?.addEventListener('click', () => { reviewIndex--; render(); }); $('#next-review')?.addEventListener('click', () => { reviewIndex++; render(); }); document.querySelectorAll('[data-open-run]').forEach(b => b.onclick = () => { openRun(b.dataset.openRun, 'overview'); }); document.querySelectorAll('[data-delete-run]').forEach(b => b.onclick = () => modal('Удалить прогон?', '<p>Серверный прогон будет перенесён в архив; его можно восстановить. Локальный снимок удалится из браузера.</p><div class="modal-actions"><button class="primary" id="confirm-delete">Подтвердить</button></div>', d => { d.querySelector('#confirm-delete').onclick = async () => { try {
+    const r = state.runs.find(r => r.id === b.dataset.deleteRun);
+    if (r?.cloud)
+        await api('/api/runs/' + r.id, { method: 'PATCH', body: { archived: true } });
+    state.runs = state.runs.filter(r => r.id !== b.dataset.deleteRun);
+    persist();
+    d.close();
+    await ensureCurrent();
+    render();
+}
+catch (e) {
+    toast(e.message);
+} }; })); }
+function bindRows() { document.querySelectorAll('[data-case]').forEach(row => { row.onclick = () => caseDetail(row.dataset.case); row.onkeydown = e => { if (e.key === 'Enter')
+    caseDetail(row.dataset.case); }; }); }
+render();
+bootstrapServer();
+async function api(path, { method = 'GET', body } = {}) { const res = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(50000) }); let data; try {
+    data = await res.json();
+}
+catch {
+    throw Error('Сервер вернул неожиданный ответ.');
+} if (!res.ok)
+    throw Error(data.error || 'Ошибка сервера ' + res.status); return data; }
+function serverBanner() { return `<div class="server-banner"><span class="status-dot"></span><div><b>Сервер и база подключены</b><small>${apiAvailable ? 'Провайдер настроен · реальные запуски доступны' : 'API-ключ пока не настроен · доступна серверная синтетическая проверка'}</small></div><button class="text-button" id="refresh-cloud">↻ Обновить</button></div>`; }
+function acceptCloudRun(r) { const old = state.runs.find(x => x.id === r.id); if (old?.progress?.done > r.progress.done)
+    return; const index = state.runs.findIndex(x => x.id === r.id); if (index < 0)
+    state.runs.unshift(r);
+else
+    state.runs[index] = r; activeRun = r.id; persist(); }
+async function ensureCurrent() { let r = state.runs.find(r => r.id === activeRun) || state.runs[0]; if (r?.stub) {
+    const data = await api('/api/runs/' + r.id);
+    acceptCloudRun(data.run);
+}
+else
+    activeRun = r?.id; }
+async function refreshCloud(focus = false) { const { runs } = await api('/api/runs'); const old = state.runs; state.runs = [...runs.map(r => { const cached = old.find(x => x.id === r.id && !x.stub && x.updatedAt === r.updatedAt); return cached || r; }), ...old.filter(x => !x.cloud)].slice(0, 100); if (focus && runs.length)
+    activeRun = runs[0].id; await ensureCurrent(); persist(); render(); }
+async function bootstrapServer() { try {
+    const data = await api('/api/health');
+    apiAvailable = data.configured === true;
+    serverMode = data.hosted === true && data.storage === true;
+    serverInfo = data;
+    if (serverMode)
+        await refreshCloud(true);
+    else
+        render();
+}
+catch { /* GitHub Pages/static mode intentionally remains usable offline. */ } document.addEventListener('click', e => { if (e.target.closest('#refresh-cloud'))
+    refreshCloud().catch(x => toast(x.message)); }); }
+async function openRun(id, nextView) { try {
+    const r = state.runs.find(x => x.id === id);
+    if (r?.cloud) {
+        const data = await api('/api/runs/' + id);
+        acceptCloudRun(data.run);
+    }
+    else
+        activeRun = id;
+    view = nextView;
+    render();
+}
+catch (e) {
+    toast(e.message);
+} }
+async function driveRun(id) { if (busy)
+    return; busy = true; stopRequested = false; activeRun = id; render(); try {
+    const worker = async () => { let idle = 0; while (!stopRequested) {
+        const { run: r, waiting } = await api('/api/runs/' + id + '/advance', { method: 'POST', body: {} });
+        acceptCloudRun(r);
+        render();
+        if (r.status === 'completed')
+            return;
+        if (waiting) {
+            if (++idle > 100)
+                throw Error('Задание ещё выполняется. Повторите «Продолжить» позже.');
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        else
+            idle = 0;
+    } };
+    await Promise.all([worker(), worker()]);
+    toast(stopRequested ? 'Прогон приостановлен. Готовые ответы сохранены.' : 'Прогон завершён и сохранён на сервере.');
+}
+catch (e) {
+    stopRequested = true;
+    toast(e.message + ' Сохранённый прогон можно продолжить.');
+}
+finally {
+    busy = false;
+    render();
+} }
+async function saveReview(r, id, review) { try {
+    await api('/api/runs/' + r.id, { method: 'PATCH', body: { caseId: id, review } });
+}
+catch (e) {
+    toast('Оценка сохранена только в браузере: ' + e.message);
+} }
+const reviewTimers = new Map();
+function queueReview(r, id, note) { const key = r.id + ':' + id; clearTimeout(reviewTimers.get(key)); reviewTimers.set(key, setTimeout(() => { reviewTimers.delete(key); saveReview(r, id, { note }); }, 450)); }
+async function showArchive() { try {
+    const { runs } = await api('/api/runs?archived=1');
+    modal('Архив прогонов', runs.length ? runs.map(r => `<div class="history-row"><b>${esc(r.name)}</b><button class="ghost" data-restore="${esc(r.id)}">Восстановить</button></div>`).join('') : '<p>Архив пуст.</p>', d => { d.querySelectorAll('[data-restore]').forEach(b => b.onclick = async () => { try {
+        await api('/api/runs/' + b.dataset.restore, { method: 'PATCH', body: { archived: false } });
+        d.close();
+        await refreshCloud();
+        toast('Прогон восстановлен');
+    }
+    catch (e) {
+        toast(e.message);
+    } }); });
+}
+catch (e) {
+    toast(e.message);
+} }

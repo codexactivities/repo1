@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {evaluate,template,validateCases,normalizeResults,stats,gate,transition,csv} from '../dist/core.js';
-import {cases,prompts,demoResults} from '../dist/demo.js';
+import {uid,evaluate,template,validateCases,normalizeResults,stats,gate,transition,csv} from '../web/core.js';
+import {cases,prompts,demoResults} from '../web/demo.js';
 const sample=()=>({cases:structuredClone(cases),prompts:structuredClone(prompts),results:demoResults()});
 test('template replaces values literally and preserves unknown variables',()=>assert.equal(template('{{x}} / {{missing}} / {{ x }}',{x:'$&'}),'$& / {{missing}} / $&'));
 test('all rules must pass; contains ignores case, exact does not',()=>{assert.equal(evaluate('Hello',[{type:'contains',value:'hello'},{type:'notContains',value:'bye'}]).pass,true);assert.equal(evaluate('Hello',[{type:'exact',value:'hello'}]).pass,false);});
@@ -14,3 +14,5 @@ test('passed B cannot become a release when provider failed',()=>{const r=sample
 test('import accepts partial runs and empty answers but rejects unknown/duplicate IDs',()=>{assert.equal(normalizeResults([{id:'refund',a:{text:''}}],cases).refund.a.text,'');assert.throws(()=>normalizeResults([{id:'absent',b:{text:'x'}}],cases));assert.throws(()=>normalizeResults([{id:'refund'},{id:'refund'}],cases));assert.equal(normalizeResults([{id:'refund',b:{error:'rate limited',text:'ignore me'}}],cases).refund.b.text,undefined);});
 test('CSV escapes delimiters, quotes, line breaks and formula injection',()=>{assert.equal(csv([['=1+2','a,"b','a\nb']]),'\uFEFF"\'=1+2","a,""b","a\nb"');});
 test('slice statistics use only cases in that slice',()=>assert.equal(stats(sample(),'b','Безопасность').total,2));
+
+test('UUID fallback supports an HTTP preview with secure random bytes',()=>{const id=uid({getRandomValues:a=>{a.fill(255);return a;}});assert.equal(id,'ffffffff-ffff-4fff-bfff-ffffffffffff');});
