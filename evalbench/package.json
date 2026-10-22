@@ -1,6 +1,6 @@
 {
   "name": "evalbench",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -13,13 +13,14 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check web/app.js && node --check web/core.js && node --check server/api.mjs && node --check scripts/serve.mjs",
+    "check": "node --check web/app.js && node --check web/core.js && node --check web/lab.js && node --check web/graders.js && node --check server/api.mjs && node --check server/provider.mjs && node --check cli/evalbench.mjs && node --check scripts/serve.mjs",
     "start:local": "node scripts/serve.mjs",
     "prebuild": "node scripts/sync-web.mjs",
     "predev": "node scripts/sync-web.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
+    "@cfworker/json-schema": "4.1.1",
     "@hookform/resolvers": "^5.7.1",
     "@shadcn/react": "^0.3.0",
     "class-variance-authority": "0.7.1",
@@ -33,6 +34,7 @@
     "next": "16.3.4",
     "next-themes": "^0.4.6",
     "radix-ui": "^1.6.7",
+    "re2js": "^2.8.6",
     "react": "19.2.6",
     "react-day-picker": "^10.0.1",
     "react-dom": "19.2.6",
@@ -54,6 +56,7 @@
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
     "drizzle-kit": "0.31.10",
+    "esbuild": "0.28.0",
     "eslint": "9.39.4",
     "eslint-config-next": "16.3.4",
     "json-rpc-2.0": "1.7.1",

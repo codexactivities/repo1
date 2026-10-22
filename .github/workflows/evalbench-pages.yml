@@ -17,6 +17,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: corepack enable && corepack pnpm install --frozen-lockfile
+        working-directory: evalbench
       - run: npm test && npm run check
         working-directory: evalbench
       - uses: actions/upload-pages-artifact@v3

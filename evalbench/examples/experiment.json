@@ -1,0 +1,13 @@
+{
+  "name": "CLI example",
+  "cases": [
+    {"id":"answer-yes","title":"Короткий ответ","vars":{"question":"Reply with yes."},"reference":"yes","tags":["smoke"],"rules":[{"type":"contains","value":"yes"}]},
+    {"id":"answer-json","title":"JSON","vars":{"question":"Return JSON with answer equal to yes."},"reference":"{\"answer\":\"yes\"}","tags":["format"],"rules":[{"type":"jsonSchema","schema":{"type":"object","required":["answer"],"properties":{"answer":{"const":"yes"}},"additionalProperties":false}}]}
+  ],
+  "prompts": {
+    "a":{"name":"Baseline","model":"YOUR_MODEL","system":"Answer the user.","user":"{{question}}","examples":[],"params":{},"maxTokens":128},
+    "b":{"name":"Candidate","model":"YOUR_MODEL","system":"Follow the requested format exactly. Do not add commentary.","user":"{{question}}","examples":[],"params":{},"maxTokens":128}
+  },
+  "judge":{"enabled":true,"model":"YOUR_JUDGE_MODEL","threshold":0.75,"maxTokens":512,"criteria":[{"id":"correctness","name":"Correctness","description":"Answer correctly and follow the requested output format. Compare to the reference when available.","weight":1}]},
+  "repeats":2,"concurrency":2,"maxRequests":100
+}

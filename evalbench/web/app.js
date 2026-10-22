@@ -1,274 +1,380 @@
-import { uid, template, validateCases, evaluate, stats, transition, gate, normalizeResults, csv, runCsv } from './core.js';
-import { cases as seedCases, prompts as seedPrompts, demoResults } from './demo.js';
-const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+import { uid, validateCases, stats, gate, transition, normalizeResults, runCsv } from './core.js';
+import { grade, ruleTypes } from './graders.js';
+import { normalizePrompt, messages, normalizeJudge, defaultJudge, importDataset, datasetCsv, compareRuns, calibration, textDiff, experimentBundle } from './lab.js';
+import { cases as demoCases, prompts as demoPrompts, demoResults } from './demo.js';
+const $ = s => document.querySelector(s), esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pretty = v => JSON.stringify(v, null, 2), pct = v => v == null ? '—' : (v * 100).toFixed(1) + '%', usd = v => v == null ? 'неизвестна' : '$' + Number(v).toFixed(5), num = v => v == null ? '—' : Math.round(v).toLocaleString('ru-RU');
 const KEY = 'evalbench.workspace.v1';
-function initial() { return { version: 1, cases: structuredClone(seedCases), prompts: structuredClone(seedPrompts), runs: [{ id: uid(), name: 'Support assistant · demo', createdAt: new Date().toISOString(), demo: true, cases: structuredClone(seedCases), prompts: structuredClone(seedPrompts), results: demoResults(), reviews: {} }], threshold: 90 }; }
-let state = initial(), storageWarning = '';
-function validatePrompts(p) { for (const k of ['a', 'b'])
-    if (typeof p?.[k]?.text !== 'string' || typeof p[k].name !== 'string')
-        throw Error('Нужны две версии промптов.'); }
-function validateWorkspace(s) { if (s?.version !== 1 || !Array.isArray(s.runs) || s.runs.length > 100 || !Number.isFinite(s.threshold) || s.threshold < 0 || s.threshold > 100)
-    throw Error('Неверный формат workspace.'); validateCases(s.cases); validatePrompts(s.prompts); for (const r of s.runs) {
-    if (!r.id || !r.name || !r.createdAt)
-        throw Error('Повреждённый прогон.');
-    validateCases(r.cases);
-    validatePrompts(r.prompts);
-    r.results = normalizeResults(Object.entries(r.results || {}).map(([id, x]) => ({ id, ...x })), r.cases);
-    if (!r.reviews || typeof r.reviews !== 'object')
-        r.reviews = {};
-} }
+let state;
 try {
-    const saved = localStorage.getItem(KEY);
-    if (saved) {
-        const s = JSON.parse(saved);
-        validateWorkspace(s);
-        state = s;
-    }
+    state = JSON.parse(localStorage.getItem(KEY));
+    if (!state?.cases)
+        throw Error();
+    state.cases = validateCases(state.cases);
+    for (const s of ['a', 'b'])
+        state.prompts[s] = normalizePrompt(state.prompts[s]);
 }
 catch {
-    storageWarning = 'Не удалось прочитать сохранение. Загружен пример; исходные данные не перезаписаны.';
+    state = { version: 1, cases: validateCases(demoCases), prompts: { a: normalizePrompt(demoPrompts.a), b: normalizePrompt(demoPrompts.b) }, runs: [], threshold: 90 };
 }
-let view = 'overview', activeRun = state.runs[0]?.id, filter = 'all', slice = 'all', query = '', blind = true, reviewIndex = 0, busy = false, apiAvailable = false, serverMode = false, serverInfo = null, stopRequested = false;
-function persist() { try {
-    localStorage.setItem(KEY, JSON.stringify({ ...state, runs: state.runs.filter(r => !r.stub) }));
-    storageWarning = '';
-}
-catch {
-    storageWarning = 'Хранилище браузера недоступно или заполнено. Экспортируйте workspace, чтобы сохранить работу.';
-    toast(storageWarning);
-} }
-function toast(s) { $('#toast').textContent = s; $('#toast').classList.add('show'); clearTimeout(toast.timer); toast.timer = setTimeout(() => $('#toast').classList.remove('show'), 4500); }
-function download(name, text, type = 'application/json') { const url = URL.createObjectURL(new Blob([text], { type })); const a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
-const run = () => state.runs.find(r => r.id === activeRun && !r.stub) || state.runs.find(r => !r.stub), pct = x => x === null ? '—' : Math.round(x * 100) + '%';
-const icons = { overview: '◫', cases: '☷', prompts: '⌘', review: '◈', history: '↺' }, names = { overview: 'Обзор оценки', cases: 'Набор тестов', prompts: 'Промпты', review: 'Слепое сравнение', history: 'История прогонов' };
-function statCard(label, value, sub, tone = '') { return `<div class="stat"><span>${label}</span><strong class="${tone}">${value}</strong><small>${sub}</small></div>`; }
-function render() { const r = run(); $('#app').innerHTML = `<aside><a class="brand" href="#"><b>e<span>∴</span></b><div>EvalBench<small>PROMPT ENGINEERING LAB</small></div></a><div class="workspace"><span class="workspace-icon">P</span><div>Personal workspace<small>${serverMode ? 'Сервер подключён' : 'Локальное хранение'}</small></div><span class="local-dot"></span></div><p class="nav-label">ЛАБОРАТОРИЯ</p><nav>${Object.entries(names).map(([k, n]) => `<button data-nav="${k}" aria-label="${n}" class="${view === k ? 'active' : ''}"><i>${icons[k]}</i>${n}${k === 'cases' ? `<em>${state.cases.length}</em>` : ''}</button>`).join('')}</nav><div class="aside-bottom"><div class="privacy"><span>◉</span><div>Ваши данные — у вас<small>${serverMode ? 'Серверные прогоны хранятся в базе.<br>Локальные данные — в браузере.' : 'Сохраняются в этом браузере.<br>Для переноса используйте экспорт.'}</small></div></div><button class="ghost full" id="workspace-export">↓ Экспорт workspace</button><button class="text-button full" id="workspace-import">Импорт workspace</button><a class="source-link" href="https://github.com/codexactivities/repo1/tree/main/evalbench" target="_blank" rel="noreferrer">Исходный код ↗</a></div></aside><main><header><div class="breadcrumb">Лаборатория <span>/</span> ${names[view]}</div><span class="version">v2.0 <span>${serverMode ? 'SERVER CONNECTED' : 'LOCAL FIRST'}</span></span></header><div class="content">${storageWarning ? `<div class="alert">${esc(storageWarning)}</div>` : ''}<div class="page-title"><div><p class="eyebrow">${view === 'overview' ? 'MEASURE. COMPARE. IMPROVE.' : 'EVALBENCH / WORKSPACE'}</p><h1>${names[view]}</h1><p class="subtitle">${({ overview: 'От хорошего ответа — к проверяемому качеству.', cases: 'Реальные сценарии. Явные ожидания. Повторяемые проверки.', prompts: 'Один набор тестов — две версии вашего промпта.', review: 'Оцените качество ответа до того, как узнаете версию.', history: 'Каждый прогон хранит снимок промптов, тестов и результатов.' })[view]}</p></div><button class="primary" id="new-run" ${busy ? 'disabled' : ''}>${busy ? 'Выполняется…' : '▶ Новый прогон'}</button></div>${serverMode ? serverBanner() : ''}${view === 'overview' ? overview(r) : view === 'cases' ? dataset() : view === 'prompts' ? promptView() : view === 'review' ? review(r) : history()}<footer><span>EvalBench · Решения на основе тестов</span><span>Данные сохраняются автоматически</span></footer><div class="mobile-transfer"><button class="text-button" id="mobile-export">↓ Экспорт workspace</button><button class="text-button" id="mobile-import">↑ Импорт workspace</button></div></div></main>`; bind(); }
-function runSelect(r) { return `<select id="run-select" aria-label="Выбрать прогон">${state.runs.map(x => `<option value="${esc(x.id)}" ${x.id === r?.id ? 'selected' : ''}>${esc(x.name)}${x.demo ? ' · ДЕМО' : ''}</option>`).join('')}</select>`; }
-function empty(title, text) { return `<section class="panel empty"><div>◫</div><h2>${title}</h2><p>${text}</p></section>`; }
-function overview(r) { if (!r)
-    return empty('Пока нет прогонов', 'Создайте первый прогон или импортируйте ответы моделей.'); const a = stats(r, 'a'), b = stats(r, 'b'), g = gate(r, state.threshold), delta = a.rate !== null && b.rate !== null && a.done === a.total && b.done === b.total && a.graded === b.graded ? Math.round((b.rate - a.rate) * 100) : null; return `<div class="run-bar"><div class="run-label"><span class="status-dot"></span>${runSelect(r)}<span class="tag">${r.provider === 'synthetic' ? 'Сервер · синтетика' : r.demo ? 'Демо · готовые ответы' : r.cloud ? 'Сервер · ' + (r.provider === 'model' ? 'модель' : 'импорт') : 'Импортированные данные'}</span></div><button class="ghost" id="export-run">↓ Экспорт результатов</button></div>${r.demo ? `<div class="demo-note"><span>i</span> ${r.provider === 'synthetic' ? 'Задания этого прогона выполнены сервером с синтетическими ответами. Реальная модель не вызывалась.' : 'Демонстрационный прогон: ответы подготовлены заранее.'}</div>` : ''}${r.cloud && r.status === 'running' ? `<div class="info-banner"><div><b>Прогон: ${r.progress.done}/${r.progress.total} ответов</b><p>Каждый готовый ответ сохранён на сервере.</p></div><button id="resume-run" class="primary" ${busy ? 'disabled' : ''}>Продолжить</button>${busy ? '<button id="pause-run" class="ghost">Пауза</button>' : ''}</div>` : ''}<div class="stats">${statCard('Успешность candidate', pct(b.rate), `${b.passed} из ${b.graded} оценённых тестов`, b.rate >= .9 ? 'green' : '')}${statCard('Изменение к baseline', delta === null ? '—' : `${delta > 0 ? '+' : ''}${delta} п.п.`, `Baseline: ${pct(a.rate)} · ${a.graded} оценено`, delta > 0 ? 'green' : '')}${statCard('Регрессии', g.regressions, 'Проходили в A, не проходят в B', g.regressions ? 'red' : 'green')}${statCard('Покрытие ответами', `${b.done}/${b.total}`, `${b.graded} тестов с автоматическими правилами`)}</div><div class="summary-grid"><section class="panel chart-panel"><div class="panel-heading"><div><h2>Качество по срезам</h2><p>Доля тестов, прошедших все правила</p></div><div class="legend"><span><i class="a"></i>Baseline</span><span><i class="b"></i>Candidate</span></div></div><div class="slice-chart">${[...new Set(r.cases.map(c => c.slice))].map(s => { const sa = stats(r, 'a', s), sb = stats(r, 'b', s); return `<div class="chart-row"><span>${esc(s)}</span><div><div class="bar-track"><div class="bar a" style="width:${(sa.rate || 0) * 100}%"></div></div><div class="bar-track"><div class="bar b" style="width:${(sb.rate || 0) * 100}%"></div></div></div><b>${pct(sb.rate)}</b></div>`; }).join('')}</div></section><section class="panel gate-panel"><div class="panel-heading"><h2>Release gate</h2><span class="tag">B → production</span></div><div class="gate-icon ${g.state}">${g.state === 'pass' ? '✓' : g.state === 'fail' ? '!' : '…'}</div><h3>${g.label}</h3><p>Порог ≥ ${state.threshold}%, без регрессий.<br>Обе версии должны иметь ответ и правило.</p><div class="threshold-row"><label for="threshold">Порог успешности</label><div><input id="threshold" type="number" min="0" max="100" value="${state.threshold}"><span>%</span></div></div></section></div><section class="panel results-panel"><div class="panel-heading"><div><h2>Результаты по тестам <span class="count">${r.cases.length}</span></h2><p>Откройте строку, чтобы сравнить ответы и проверки</p></div><button class="text-button" id="go-review">Слепое сравнение ↗</button></div><div class="table-tools"><div class="tabs">${[['all', 'Все тесты'], ['regression', 'Регрессии'], ['failure', 'Ошибки B'], ['improvement', 'Улучшения']].map(([k, l]) => `<button data-filter="${k}" class="${filter === k ? 'selected' : ''}">${l}</button>`).join('')}</div><div class="search-group"><input id="search" placeholder="Поиск теста…" aria-label="Поиск теста" value="${esc(query)}"><select id="slice" aria-label="Срез"><option value="all">Все срезы</option>${[...new Set(r.cases.map(c => c.slice))].map(s => `<option ${slice === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></div></div><div id="result-table">${table(r)}</div></section><div class="metrics-note">${b.latency !== null ? `Средняя задержка B: ${Math.round(b.latency)} мс` : 'Задержка: нет измерений'} <span>·</span> ${b.cost !== null ? `Стоимость B: $${b.cost.toFixed(4)}` : 'Стоимость: не указана'} <span>·</span> Правила измеряют соблюдение условий, а не полное качество ответа.</div>`; }
-function badge(r, c, side) { const x = r.results[c.id]?.[side]; if (x?.error)
-    return '<span class="badge fail">Ошибка</span>'; const e = evaluate(x?.text, c.rules); return `<span class="badge ${e.pass === true ? 'pass' : e.pass === false ? 'fail' : 'pending'}">${e.pass === true ? '✓ Pass' : e.pass === false ? '× Fail' : typeof x?.text === 'string' ? 'Без правил' : 'Нет ответа'}</span>`; }
-function table(r) { const list = r.cases.filter(c => { const t = transition(r, c); return (filter === 'all' || t === filter || (filter === 'failure' && ['regression', 'error'].includes(t))) && (slice === 'all' || c.slice === slice) && `${c.id} ${c.title}`.toLowerCase().includes(query.toLowerCase()); }); return `<div class="table-scroll"><table><thead><tr><th>ТЕСТ / СЦЕНАРИЙ</th><th>СРЕЗ</th><th>BASELINE A</th><th>CANDIDATE B</th><th>ИЗМЕНЕНИЕ</th><th></th></tr></thead><tbody>${list.map(c => { const t = transition(r, c); return `<tr data-case="${esc(c.id)}" tabindex="0" role="button" aria-label="Открыть тест ${esc(c.title)}"><td><strong>${esc(c.title)}</strong><small>${esc(c.id)}</small></td><td><span class="slice-tag">${esc(c.slice)}</span></td><td>${badge(r, c, 'a')}</td><td>${badge(r, c, 'b')}</td><td><span class="change ${t}">${({ regression: '↘ Регрессия', improvement: '↗ Улучшение', failure: 'Требует внимания', pass: 'Без регрессии', ungraded: 'Не оценён', error: 'Ошибка запроса' })[t]}</span></td><td>↗</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty-cell">Нет тестов с такими условиями.</td></tr>'}</tbody></table></div>`; }
-function ruleLabel(r) { return ({ contains: 'Содержит', notContains: 'Не содержит', exact: 'Точное совпадение', json: 'Валидный JSON', maxWords: 'Макс. слов' })[r.type] + (r.value !== undefined ? ' · ' + r.value : ''); }
-function dataset() { return `<div class="info-banner"><div><b>Тесты — источник истины</b><p>Переменные подставляются в {{question}} и {{context}}. У каждого теста свои правила.</p></div><button class="ghost" id="edit-dataset">Редактор JSON</button></div><section class="panel"><div class="panel-heading"><div><h2>Evaluation dataset <span class="count">${state.cases.length}</span></h2><p>Редактирование не меняет сохранённые прогоны</p></div><div class="button-group"><button class="ghost" id="export-cases">↓ JSON</button><button class="ghost" id="import-cases">↑ Импорт</button><button class="primary small" id="add-case">+ Добавить тест</button></div></div><div class="table-scroll"><table><thead><tr><th>СЦЕНАРИЙ</th><th>СРЕЗ</th><th>ПРАВИЛА</th><th></th></tr></thead><tbody>${state.cases.map(c => `<tr><td><strong>${esc(c.title)}</strong><small>${esc(String(c.vars.question || Object.values(c.vars)[0] || c.id).slice(0, 100))}</small></td><td><span class="slice-tag">${esc(c.slice)}</span></td><td>${c.rules.map(ruleLabel).map(x => `<span class="rule-tag">${esc(x)}</span>`).join(' ') || 'Без правил'}</td><td><button class="text-button" data-edit-case="${esc(c.id)}">Изменить</button></td></tr>`).join('')}</tbody></table></div></section>`; }
-function promptView() { return `<div class="prompt-grid">${['a', 'b'].map(s => `<section class="panel prompt-card"><div class="panel-heading"><h2><span class="version-letter ${s}">${s.toUpperCase()}</span> ${s === 'a' ? 'Baseline' : 'Candidate'}</h2><span class="tag">${s === 'a' ? 'Контроль' : 'Эксперимент'}</span></div><label>Название версии<input id="name-${s}" value="${esc(state.prompts[s].name)}" maxlength="120"></label><label>Модель провайдера<input id="model-${s}" value="${esc(state.prompts[s].model || '')}" placeholder="ID модели у вашего провайдера"></label><label>Шаблон промпта<textarea id="prompt-${s}" rows="13" spellcheck="false">${esc(state.prompts[s].text)}</textarea></label><div class="prompt-meta"><span>${state.prompts[s].text.length} символов</span><span>{{variable}} → значение из теста</span></div></section>`).join('')}</div><div class="prompt-actions"><p>Тексты сохраняются по кнопке. Прогоны содержат собственные снимки версий.</p><button class="primary" id="save-prompts">Сохранить версии</button></div><section class="panel preview-panel"><div class="panel-heading"><div><h2>Предпросмотр подстановки</h2><p>Проверка шаблона на первом тесте набора</p></div></div><div class="prompt-grid">${['a', 'b'].map(s => `<div><span class="eyebrow">ВЕРСИЯ ${s.toUpperCase()}</span><pre>${esc(template(state.prompts[s].text, state.cases[0].vars))}</pre></div>`).join('')}</div></section>`; }
-function review(r) { if (!r)
-    return empty('Нет ответов для оценки', 'Сначала создайте прогон.'); const cs = r.cases.filter(c => typeof r.results[c.id]?.a?.text === 'string' && typeof r.results[c.id]?.b?.text === 'string'); if (!cs.length)
-    return empty('Нужны ответы обеих версий', 'Импортируйте A и B для одного теста.'); reviewIndex = Math.min(reviewIndex, cs.length - 1); const c = cs[reviewIndex], flip = [...c.id + r.id].reduce((s, x) => s + x.charCodeAt(0), 0) % 2 === 1, sides = flip ? ['b', 'a'] : ['a', 'b'], rev = r.reviews[c.id] || {}; return `<div class="run-bar"><div>${runSelect(r)} <span class="tag">${Object.values(r.reviews).filter(x => x.winner).length} оценено</span></div><label class="toggle"><input id="blind" type="checkbox" ${blind ? 'checked' : ''}> Скрывать версии</label></div><div class="review-context"><div class="eyebrow">ТЕСТ ${reviewIndex + 1} / ${cs.length} · ${esc(c.slice)}</div><h2>${esc(c.title)}</h2><p>${esc(c.vars.question || JSON.stringify(c.vars))}</p><details><summary>Контекст и эталон</summary><pre>${esc(c.reference || JSON.stringify(c.vars, null, 2))}</pre></details></div><div class="prompt-grid">${sides.map((s, i) => `<section class="panel answer-card"><div class="panel-heading"><h2>Ответ ${i + 1}</h2><span class="tag">${blind ? 'Версия скрыта' : esc(r.prompts[s].name)}</span></div><pre>${esc(r.results[c.id][s].text)}</pre></section>`).join('')}</div><section class="panel review-controls"><h2>Какой ответ лучше?</h2><p>Ориентируйтесь на точность, полноту и полезность. Порядок ответов перемешан и сохраняется для этого прогона.</p><div class="vote-options">${[[sides[0], '← Ответ 1'], ['tie', 'Ничья'], [sides[1], 'Ответ 2 →'], ['skip', 'Пропустить']].map(([s, l]) => `<button class="${rev.winner === s ? 'primary' : 'ghost'}" data-vote="${s}" data-review-case="${esc(c.id)}">${l}</button>`).join('')}</div><label>Комментарий к оценке<textarea id="review-note" data-id="${esc(c.id)}" rows="2" placeholder="Что повлияло на вашу оценку?">${esc(rev.note || '')}</textarea></label><div class="review-nav"><button class="ghost" id="prev-review" ${reviewIndex === 0 ? 'disabled' : ''}>← Предыдущий</button><span>${reviewIndex + 1} / ${cs.length}</span><button class="ghost" id="next-review" ${reviewIndex === cs.length - 1 ? 'disabled' : ''}>Следующий →</button></div></section>`; }
-function history() { return `<section class="panel"><div class="panel-heading"><div><h2>Сохранённые прогоны</h2><p>Серверные записи можно открыть с другого устройства</p></div>${serverMode ? '<button class="ghost" id="show-archive">Архив</button>' : ''}</div>${state.runs.map(r => { const b = r.stub ? r.summary.b : stats(r, 'b'), a = r.stub ? r.summary.a : stats(r, 'a'), reg = r.stub ? r.summary.regressions : gate(r).regressions; const complete = b.done === b.total && b.graded === b.total && a.done === a.total && a.graded === a.total; const g = { state: !complete ? 'pending' : b.rate * 100 >= state.threshold && reg === 0 ? 'pass' : 'fail', label: !complete ? 'Недостаточно данных' : b.rate * 100 >= state.threshold && reg === 0 ? 'Можно выпускать' : 'Нужна доработка' }; return `<div class="history-row"><div class="history-icon">◫</div><div><b>${esc(r.name)}</b><small>${new Date(r.createdAt).toLocaleString('ru-RU')} · ${b.total} тестов · ${r.cloud ? 'сервер' : 'браузер'} ${r.status === 'running' ? `· ${r.progress.done}/${r.progress.total} ответов` : ''} ${r.demo ? '· синтетика' : ''}</small></div><span class="history-rate">${pct(b.rate)}</span><span class="badge ${g.state === 'pass' ? 'pass' : g.state === 'fail' ? 'fail' : 'pending'}">${g.label}</span><button class="ghost" data-open-run="${esc(r.id)}">Открыть ↗</button><button class="text-button danger" data-delete-run="${esc(r.id)}" aria-label="${r.cloud ? 'Архивировать' : 'Удалить'} прогон ${esc(r.name)}">×</button></div>`; }).join('') || empty('Прогонов пока нет', 'Создайте прогон, чтобы начать сравнение.')}</section>`; }
-function modal(title, body, fn) { const d = $('#modal'); d.innerHTML = `<div class="modal-heading"><h2>${title}</h2><button class="close" aria-label="Закрыть">×</button></div><div class="modal-body">${body}</div>`; d.querySelector('.close').onclick = () => { if (busy)
-    return toast('Дождитесь завершения прогона.'); d.close(); }; if (!d.open)
-    d.showModal(); fn?.(d); }
-$('#modal').addEventListener('cancel', e => { if (busy)
-    e.preventDefault(); });
-function caseDetail(id) { const r = run(), c = r.cases.find(c => c.id === id); modal(esc(c.title), `<p class="eyebrow">${esc(c.id)} · ${esc(c.slice)}</p><details open><summary>Входные данные</summary><pre>${esc(JSON.stringify(c.vars, null, 2))}</pre></details><div class="prompt-grid">${['a', 'b'].map(s => { const x = r.results[c.id]?.[s], e = evaluate(x?.text, c.rules); return `<section class="answer-detail"><h3>${esc(r.prompts[s].name)} ${badge(r, c, s)}</h3><pre>${esc(x?.error || x?.text || 'Нет ответа')}</pre><div class="checks">${e.checks.map(k => `<p class="${k.pass ? 'green' : 'red'}">${k.pass ? '✓' : '×'} ${esc(ruleLabel(k))}</p>`).join('')}</div><details><summary>Отправленный промпт</summary><pre>${esc(template(r.prompts[s].text, c.vars))}</pre></details></section>`; }).join('')}</div>`); }
-function editCase(id) { const existing = state.cases.find(c => c.id === id), c = existing || { id: 'test-' + uid().slice(0, 8), title: 'Новый сценарий', slice: 'Общее', vars: { question: '', context: '' }, reference: '', rules: [{ type: 'contains', value: 'ожидаемый текст' }] }; modal(existing ? 'Изменить тест' : 'Новый тест', `<label>Тест в формате JSON<textarea id="case-json" rows="19" spellcheck="false">${esc(JSON.stringify(c, null, 2))}</textarea></label><p class="help">Правила: contains, notContains, exact, json, maxWords. Регистр учитывается только в exact.</p><p class="form-error" role="alert"></p><div class="modal-actions">${existing ? '<button class="ghost danger" id="remove-case">Удалить тест</button>' : ''}<button class="primary" id="save-case">Сохранить тест</button></div>`, d => { d.querySelector('#save-case').onclick = () => { try {
-    const next = JSON.parse(d.querySelector('#case-json').value), cases = state.cases.filter(x => x.id !== id);
-    cases.splice(existing ? state.cases.findIndex(x => x.id === id) : cases.length, 0, next);
-    state.cases = validateCases(cases);
-    persist();
-    d.close();
-    render();
-    toast('Тест сохранён');
-}
-catch (e) {
-    d.querySelector('.form-error').textContent = e.message;
-} }; if (existing)
-    d.querySelector('#remove-case').onclick = () => { if (state.cases.length === 1)
-        return toast('В наборе должен остаться хотя бы один тест.'); state.cases = state.cases.filter(x => x.id !== id); persist(); d.close(); render(); }; }); }
-function jsonEditor() { modal('Редактор набора тестов', `<label>JSON-массив тестов<textarea id="dataset-json" rows="21" spellcheck="false">${esc(JSON.stringify(state.cases, null, 2))}</textarea></label><p class="form-error" role="alert"></p><div class="modal-actions"><button class="primary" id="save-dataset">Сохранить набор</button></div>`, d => d.querySelector('#save-dataset').onclick = () => { try {
-    state.cases = validateCases(JSON.parse(d.querySelector('#dataset-json').value));
-    persist();
-    d.close();
-    render();
-    toast('Набор обновлён');
-}
-catch (e) {
-    d.querySelector('.form-error').textContent = e.message;
-} }); }
-async function readJson(file) { if (file.size > 10000000)
-    throw Error('Файл должен быть меньше 10 МБ.'); return JSON.parse(await file.text()); }
-function pickFile(fn) { const f = document.createElement('input'); f.type = 'file'; f.accept = '.json,application/json'; f.onchange = async () => { if (!f.files[0])
-    return; try {
-    await fn(await readJson(f.files[0]));
-}
-catch (e) {
-    toast(e.message);
-} }; f.click(); }
-function addRun(x) { if (state.runs.length >= 100)
-    throw Error('Лимит: 100 прогонов. Экспортируйте и удалите старые.'); const r = { ...x, id: uid(), createdAt: new Date().toISOString(), reviews: {} }; state.runs.unshift(r); activeRun = r.id; view = 'overview'; filter = 'all'; slice = 'all'; query = ''; persist(); render(); }
-function newRun() { modal('Новый evaluation run', `<label>Название<input id="run-name" value="Experiment ${state.runs.length + 1}" maxlength="120"></label><label>Лимит ответа модели, токены<input id="max-tokens" type="number" min="16" max="2048" value="512"></label><div class="run-options"><button id="import-results"><b>↑ Импорт ответов</b><span>JSON с ответами A/B; в серверной версии результат сохраняется в базе</span></button><button id="paste-results"><b>⌘ Вставить JSON</b><span>Быстрый импорт ответов из буфера обмена</span></button><button id="live-run" ${apiAvailable ? '' : 'disabled'}><b>▶ Выполнить на моделях</b><span>${apiAvailable ? 'API-ключ настроен на сервере. Будут отправлены до ' + state.cases.length * 2 + ' платных запросов.' : 'На сервере ещё не настроен API-ключ провайдера. Реальные вызовы недоступны.'}</span></button>${serverMode ? '<button id="synthetic-run"><b>✓ Проверить сервер на синтетике</b><span>8 независимых тестов, 16 серверных заданий, две ожидаемые регрессии. API модели не вызывается.</span></button>' : ''}<button id="demo-run"><b>◫ Локальная демонстрация</b><span>12 подготовленных ответов. Это не серверный запуск.</span></button></div><details><summary>Формат импорта</summary><pre>[{"id":"refund","a":{"text":"Ответ A"},"b":{"text":"Ответ B"}}]</pre><button class="text-button" id="download-template">Скачать шаблон ↓</button></details><p class="form-error" role="alert"></p>`, d => { const name = () => d.querySelector('#run-name').value.trim() || 'Untitled experiment'; const importData = async (data, runName) => { const results = normalizeResults(data, state.cases); if (serverMode) {
-    const result = await api('/api/runs', { method: 'POST', body: { id: uid(), provider: 'import', name: runName, cases: state.cases, prompts: state.prompts, results: Object.entries(results).map(([id, v]) => ({ id, ...v })) } });
-    acceptCloudRun(result.run);
-    view = 'overview';
-    render();
-}
-else
-    addRun({ name: runName, cases: structuredClone(state.cases), prompts: structuredClone(state.prompts), results }); d.close(); }; d.querySelector('#import-results').onclick = () => pickFile(data => importData(data, name())); d.querySelector('#paste-results').onclick = () => { const runName = name(); modal('Импорт ответов JSON', '<label>Ответы A/B<textarea id="pasted-results" rows="14" spellcheck="false"></textarea></label><p class="form-error" role="alert"></p><div class="modal-actions"><button class="primary" id="save-pasted">Импортировать</button></div>', m => { m.querySelector('#save-pasted').onclick = async () => { try {
-    await importData(JSON.parse(m.querySelector('#pasted-results').value), runName);
-}
-catch (e) {
-    m.querySelector('.form-error').textContent = e.message;
-} }; }); }; d.querySelector('#download-template').onclick = () => download('evalbench-responses-template.json', JSON.stringify(state.cases.map(c => ({ id: c.id, a: { text: '' }, b: { text: '' } })), null, 2)); d.querySelector('#demo-run').onclick = () => { addRun({ name: name() + ' · demo', demo: true, cases: structuredClone(seedCases), prompts: structuredClone(seedPrompts), results: demoResults() }); d.close(); }; const start = async (provider) => { try {
-    if (busy)
-        return;
-    if (provider === 'model' && ['a', 'b'].some(s => !state.prompts[s].model?.trim()))
-        throw Error('Укажите и сохраните модели обеих версий на странице «Промпты».');
-    if (provider === 'model' && state.cases.length > 50)
-        throw Error('Максимум 50 тестов за один прогон.');
-    const maxTokens = Number(d.querySelector('#max-tokens').value);
-    d.querySelectorAll('.run-options button').forEach(b => b.disabled = true);
-    if (serverMode) {
-        const result = await api('/api/runs', { method: 'POST', body: { id: uid(), provider, name: name(), cases: state.cases, prompts: state.prompts, maxTokens } });
-        acceptCloudRun(result.run);
-        view = 'overview';
-        d.close();
-        await driveRun(result.run.id);
-    }
-    else {
-        busy = true;
-        const snapshot = { name: name(), cases: structuredClone(state.cases), prompts: structuredClone(state.prompts) };
-        const data = await api('/api/run', { method: 'POST', body: snapshot });
-        addRun({ ...snapshot, results: normalizeResults(data.results, snapshot.cases) });
-        d.close();
-        busy = false;
-        render();
-    }
-}
-catch (e) {
-    busy = false;
-    d.querySelector('.form-error').textContent = e.message;
-    d.querySelectorAll('.run-options button').forEach(b => b.disabled = false);
-} }; d.querySelector('#live-run').onclick = () => start('model'); d.querySelector('#synthetic-run')?.addEventListener('click', () => start('synthetic')); }); }
-function exportRun() { const r = run(); modal('Экспорт результатов', '<p>JSON содержит снимок прогона; CSV — ответы, оценки и комментарии.</p><div class="modal-actions"><button class="ghost" id="download-csv">Скачать CSV</button><button class="primary" id="download-json">Скачать JSON</button></div>', d => { for (const format of ['csv', 'json'])
-    d.querySelector('#download-' + format).onclick = () => { if (r.cloud) {
-        const a = document.createElement('a');
-        a.href = '/api/runs/' + encodeURIComponent(r.id) + '/export?format=' + format;
-        a.download = '';
-        a.click();
-    }
-    else
-        download('evalbench-run.' + format, format === 'csv' ? runCsv(r) : JSON.stringify(r, null, 2), format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json'); }; }); }
-function importWorkspace() { pickFile(s => { validateWorkspace(s); modal('Заменить текущий workspace?', `<p>Будут загружены ${s.cases.length} тестов и ${s.runs.length} прогонов. Экспортируйте текущие данные, если хотите их сохранить.</p><div class="modal-actions"><button class="ghost" id="backup-first">Экспортировать текущий</button><button class="primary" id="confirm-import">Заменить workspace</button></div>`, d => { d.querySelector('#backup-first').onclick = () => download('evalbench-backup.json', JSON.stringify(state, null, 2)); d.querySelector('#confirm-import').onclick = () => { state = s; activeRun = s.runs[0]?.id; filter = 'all'; slice = 'all'; query = ''; persist(); d.close(); render(); toast('Workspace импортирован'); }; }); }); }
-function bind() { $('#resume-run')?.addEventListener('click', () => driveRun(run().id)); $('#pause-run')?.addEventListener('click', () => { stopRequested = true; toast('Новые задания остановятся после текущих запросов.'); }); $('#show-archive')?.addEventListener('click', showArchive); document.querySelectorAll('[data-nav]').forEach(b => b.onclick = () => { view = b.dataset.nav; render(); }); $('#new-run').onclick = newRun; $('#workspace-export').onclick = () => download('evalbench-workspace.json', JSON.stringify(state, null, 2)); $('#workspace-import').onclick = importWorkspace; $('#mobile-export').onclick = $('#workspace-export').onclick; $('#mobile-import').onclick = importWorkspace; $('#run-select')?.addEventListener('change', e => { reviewIndex = 0; openRun(e.target.value, view); }); $('#export-run')?.addEventListener('click', exportRun); $('#threshold')?.addEventListener('change', e => { const v = Number(e.target.value); if (!Number.isFinite(v) || v < 0 || v > 100) {
-    toast('Порог должен быть от 0 до 100.');
-    render();
-    return;
-} state.threshold = v; persist(); render(); }); document.querySelectorAll('[data-filter]').forEach(b => b.onclick = () => { filter = b.dataset.filter; render(); }); function updateTable() { $('#result-table').innerHTML = table(run()); bindRows(); } $('#search')?.addEventListener('input', e => { query = e.target.value; updateTable(); }); $('#slice')?.addEventListener('change', e => { slice = e.target.value; updateTable(); }); bindRows(); $('#go-review')?.addEventListener('click', () => { view = 'review'; render(); }); $('#edit-dataset')?.addEventListener('click', jsonEditor); $('#add-case')?.addEventListener('click', () => editCase()); document.querySelectorAll('[data-edit-case]').forEach(b => b.onclick = () => editCase(b.dataset.editCase)); $('#export-cases')?.addEventListener('click', () => download('evalbench-dataset.json', JSON.stringify(state.cases, null, 2))); $('#import-cases')?.addEventListener('click', () => pickFile(data => { state.cases = validateCases(data); persist(); render(); toast('Набор импортирован'); })); $('#save-prompts')?.addEventListener('click', () => { for (const s of ['a', 'b'])
-    state.prompts[s] = { name: $('#name-' + s).value.trim() || s.toUpperCase(), model: $('#model-' + s).value.trim(), text: $('#prompt-' + s).value }; persist(); render(); toast('Обе версии сохранены'); }); $('#blind')?.addEventListener('change', e => { blind = e.target.checked; render(); }); document.querySelectorAll('[data-vote]').forEach(b => b.onclick = () => { const r = run(), id = b.dataset.reviewCase; r.reviews[id] = { ...r.reviews[id], winner: b.dataset.vote }; persist(); if (r.cloud)
-    saveReview(r, id, { winner: b.dataset.vote }); render(); }); $('#review-note')?.addEventListener('input', e => { const r = run(), id = e.target.dataset.id; r.reviews[id] = { ...r.reviews[id], note: e.target.value }; persist(); if (r.cloud)
-    queueReview(r, id, e.target.value); }); $('#prev-review')?.addEventListener('click', () => { reviewIndex--; render(); }); $('#next-review')?.addEventListener('click', () => { reviewIndex++; render(); }); document.querySelectorAll('[data-open-run]').forEach(b => b.onclick = () => { openRun(b.dataset.openRun, 'overview'); }); document.querySelectorAll('[data-delete-run]').forEach(b => b.onclick = () => modal('Удалить прогон?', '<p>Серверный прогон будет перенесён в архив; его можно восстановить. Локальный снимок удалится из браузера.</p><div class="modal-actions"><button class="primary" id="confirm-delete">Подтвердить</button></div>', d => { d.querySelector('#confirm-delete').onclick = async () => { try {
-    const r = state.runs.find(r => r.id === b.dataset.deleteRun);
-    if (r?.cloud)
-        await api('/api/runs/' + r.id, { method: 'PATCH', body: { archived: true } });
-    state.runs = state.runs.filter(r => r.id !== b.dataset.deleteRun);
-    persist();
-    d.close();
-    await ensureCurrent();
-    render();
-}
-catch (e) {
-    toast(e.message);
-} }; })); }
-function bindRows() { document.querySelectorAll('[data-case]').forEach(row => { row.onclick = () => caseDetail(row.dataset.case); row.onkeydown = e => { if (e.key === 'Enter')
-    caseDetail(row.dataset.case); }; }); }
-render();
-bootstrapServer();
-async function api(path, { method = 'GET', body } = {}) { const res = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(50000) }); let data; try {
-    data = await res.json();
+state.judge = normalizeJudge(state.judge || defaultJudge);
+state.refs ||= {};
+state.assetNames ||= { dataset: 'Основной датасет', a: 'Baseline', b: 'Candidate', rubric: 'Основная рубрика' };
+state.families ||= {};
+state.assetKinds ||= {};
+const legacyDemo = () => ({ id: uid(), name: 'Учебный пример · 12 кейсов', createdAt: new Date().toISOString(), cases: validateCases(demoCases), prompts: demoPrompts, results: demoResults(), reviews: {}, demo: true });
+if (!state.runs.length)
+    state.runs = [legacyDemo()];
+let active = state.runs[0].id, view = 'overview', server = { storage: false }, provider = {}, assets = [], busy = false, driveId = null, filter = 'all', query = '', tag = 'all', repeat = 0, selected = new Set(), reviewIndex = 0, unreviewed = true, blind = true, compare = { baseline: active, candidate: active, baselineSide: 'a', candidateSide: 'b', tag: 'all' }, compareResult = null;
+const current = () => state.runs.find(r => r.id === active);
+const persist = () => { try {
+    localStorage.setItem(KEY, JSON.stringify({ ...state, runs: state.runs.filter(r => !r.cloud).slice(0, 30) }));
 }
 catch {
-    throw Error('Сервер вернул неожиданный ответ.');
+    toast('Память браузера заполнена; серверные данные сохранены.');
+} };
+function toast(msg) { $('#toast').textContent = msg; $('#toast').classList.add('show'); clearTimeout(toast.timer); toast.timer = setTimeout(() => $('#toast').classList.remove('show'), 5000); }
+async function api(path, method = 'GET', data) { const res = await fetch('/api' + path, { method, headers: data ? { 'Content-Type': 'application/json' } : {}, body: data ? JSON.stringify(data) : undefined }); let value; try {
+    value = await res.json();
+}
+catch {
+    throw Error('Сервер недоступен.');
 } if (!res.ok)
-    throw Error(data.error || 'Ошибка сервера ' + res.status); return data; }
-function serverBanner() { return `<div class="server-banner"><span class="status-dot"></span><div><b>Сервер и база подключены</b><small>${apiAvailable ? 'Провайдер настроен · реальные запуски доступны' : 'API-ключ пока не настроен · доступна серверная синтетическая проверка'}</small></div><button class="text-button" id="refresh-cloud">↻ Обновить</button></div>`; }
-function acceptCloudRun(r) { const old = state.runs.find(x => x.id === r.id); if (old?.progress?.done > r.progress.done)
-    return; const index = state.runs.findIndex(x => x.id === r.id); if (index < 0)
-    state.runs.unshift(r);
+    throw Error(value.error || 'Ошибка запроса'); return value; }
+function putRun(run) { const i = state.runs.findIndex(r => r.id === run.id); if (i < 0)
+    state.runs.unshift(run);
 else
-    state.runs[index] = r; activeRun = r.id; persist(); }
-async function ensureCurrent() { let r = state.runs.find(r => r.id === activeRun) || state.runs[0]; if (r?.stub) {
-    const data = await api('/api/runs/' + r.id);
-    acceptCloudRun(data.run);
+    state.runs[i] = run; return run; }
+async function full(id) { let r = state.runs.find(r => r.id === id); if (!r || r.stub) {
+    r = (await api('/runs/' + id)).run;
+    putRun(r);
+} return r; }
+async function refresh() { const data = await api('/runs'); state.runs = [...data.runs.map(r => { const cached = state.runs.find(x => x.id === r.id); return cached && !cached.stub && cached.updatedAt === r.updatedAt ? cached : r; }), ...state.runs.filter(r => !r.cloud)]; assets = (await api('/assets')).assets; }
+const btn = (label, action, cls = 'ghost', attrs = '') => `<button class="${cls}" data-action="${action}" ${attrs}>${label}</button>`;
+const opts = (items, value) => items.map(([v, l]) => `<option value="${esc(v)}" ${v === value ? 'selected' : ''}>${esc(l)}</option>`).join('');
+const input = (label, id, value = '', type = 'text', attrs = '') => `<label>${label}<input id="${id}" type="${type}" value="${esc(value)}" ${attrs}></label>`;
+const area = (label, id, value, rows = 4) => `<label>${label}<textarea id="${id}" rows="${rows}" spellcheck="false">${esc(value)}</textarea></label>`;
+function modal(title, html, setup) { const d = $('#modal'); d.innerHTML = `<div class="modal-heading"><h2>${esc(title)}</h2><button class="close" aria-label="Закрыть">×</button></div><div class="modal-body">${html}<p class="form-error" role="alert"></p></div>`; d.querySelector('.close').onclick = () => d.close(); if (!d.open)
+    d.showModal(); setup?.(d); }
+const safe = fn => async (...args) => { try {
+    await fn(...args);
 }
-else
-    activeRun = r?.id; }
-async function refreshCloud(focus = false) { const { runs } = await api('/api/runs'); const old = state.runs; state.runs = [...runs.map(r => { const cached = old.find(x => x.id === r.id && !x.stub && x.updatedAt === r.updatedAt); return cached || r; }), ...old.filter(x => !x.cloud)].slice(0, 100); if (focus && runs.length)
-    activeRun = runs[0].id; await ensureCurrent(); persist(); render(); }
-async function bootstrapServer() { try {
-    const data = await api('/api/health');
-    apiAvailable = data.configured === true;
-    serverMode = data.hosted === true && data.storage === true;
-    serverInfo = data;
-    if (serverMode)
-        await refreshCloud(true);
+catch (e) {
+    const err = $('#modal[open] .form-error');
+    if (err)
+        err.textContent = e.message;
     else
-        render();
+        toast(e.message);
+} };
+function download(name, text, type = 'application/json') { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
+function status(r) { return r?.demo ? 'Синтетика' : r?.provider === 'import' ? 'Импорт' : 'Модель'; }
+const gradeBadge = g => `<span class="badge ${g.pass === true ? 'pass' : g.pass === false ? 'fail' : 'pending'}">${g.pass === true ? 'PASS' : g.pass === false ? 'FAIL' : g.error ? 'ERROR' : 'Ожидается'}</span>`;
+const panel = (title, body, actions = '') => `<section class="panel"><div class="panel-heading"><h2>${title}</h2><div class="button-group">${actions}</div></div><div class="panel-body">${body}</div></section>`;
+const nav = [['overview', '◫', 'Обзор'], ['dataset', '▦', 'Датасет'], ['prompts', '⌘', 'Промпты'], ['judge', '◇', 'Оценщики / Judge'], ['compare', '⇄', 'Сравнение'], ['errors', '⚑', 'Разбор ошибок'], ['review', '◎', 'Ручная оценка'], ['history', '◷', 'Прогоны'], ['settings', '⚙', 'Провайдер']];
+function render() {
+    const r = current();
+    $('#app').innerHTML = `<aside><a class="brand" href="#"><b>E<span>✦</span></b><div>EvalBench<small>PROMPT EVALUATION LAB</small></div></a><div class="workspace"><span class="workspace-icon">◈</span><div>Prompt Engineering<small>${server.storage ? 'Приватное серверное пространство' : 'Локальный черновик'}</small></div><i class="local-dot"></i></div><p class="nav-label">ЛАБОРАТОРИЯ</p><nav>${nav.map(([id, icon, label]) => `<button data-view="${id}" class="${view === id ? 'active' : ''}"><i>${icon}</i>${label}</button>`).join('')}</nav><div class="aside-bottom"><div class="privacy"><span>♧</span><div>Данные сохраняются<small>Версии, ответы, оценки и бюджет — в одном эксперименте.</small></div></div><a class="source-link" href="https://github.com/codexactivities/repo1/tree/main/evalbench" target="_blank" rel="noreferrer">Исходный код · GitHub ↗</a></div></aside><main><header><div class="breadcrumb">Workspace <span>/</span> ${nav.find(n => n[0] === view)?.[2]}</div><div class="version">v3.0 <span>EVAL WORKBENCH</span></div></header><div class="content"><div class="page-title"><div><p class="eyebrow">EVALBENCH / PROMPT LAB</p><h1>${nav.find(n => n[0] === view)?.[2]}</h1><p class="subtitle">${({ overview: 'От тестового набора до решения о выпуске.', dataset: 'Редактируйте входы, эталоны, теги и критерии.', prompts: 'Версии инструкций, параметры и предпросмотр сообщений.', judge: 'Программные проверки и модель как оценщик.', compare: 'Парное сравнение на одинаковых кейсах.', errors: 'Найдите причину ошибки и сохраните её в regression suite.', review: 'Слепая разметка и калибровка judge по человеку.', history: 'Снимки экспериментов и возобновляемая очередь.', settings: 'Подключение модели и прозрачный расчёт стоимости.' })[view]}</p></div>${btn('+ Новый прогон', 'new-run', 'primary')}</div>${['overview', 'errors', 'review'].includes(view) ? runBar(r) : ''}<div id="view-body">${r?.stub && ['overview', 'errors', 'review'].includes(view) ? '<p>Загружаю прогон…</p>' : ({ overview: overview, dataset: dataset, prompts: promptsView, judge: judgeView, compare: compareView, errors: errorsView, review: reviewView, history: historyView, settings: settingsView })[view]()}</div><footer><span>EvalBench · версии и результаты сохраняются независимо</span><span>${server.storage ? 'Сервер подключён' : 'Сервер не подключён'}</span></footer></div></main>`;
+    bind();
+    if (r?.stub && ['overview', 'errors', 'review'].includes(view))
+        safe(async () => { await full(r.id); render(); })();
 }
-catch { /* GitHub Pages/static mode intentionally remains usable offline. */ } document.addEventListener('click', e => { if (e.target.closest('#refresh-cloud'))
-    refreshCloud().catch(x => toast(x.message)); }); }
-async function openRun(id, nextView) { try {
-    const r = state.runs.find(x => x.id === id);
-    if (r?.cloud) {
-        const data = await api('/api/runs/' + id);
-        acceptCloudRun(data.run);
+function runBar(r) { return `<div class="run-bar"><div class="run-label"><select id="active-run" aria-label="Текущий прогон">${opts(state.runs.map(x => [x.id, x.name]), active)}</select><span class="tag">${status(r)}</span></div><div class="button-group">${r?.cloud ? ['json', 'csv', 'jsonl', 'bundle'].map(f => `<a class="ghost small" href="/api/runs/${r.id}/export?format=${f}" download>${f.toUpperCase()}</a>`).join('') : btn('Экспорт JSON', 'local-export')}</div></div>${r?.demo ? '<div class="demo-note">Синтетические ответы и синтетический judge предназначены для проверки работы инструмента. Это не замер качества живой LLM.</div>' : ''}${r?.cloud && r.progress ? `<div class="queue"><div class="queue-title"><b>${r.progress.done} / ${r.progress.total} задач · ${r.status}</b><span>${r.progress.errors} ошибок · выполняется ${r.progress.running || 0}</span></div><progress value="${r.progress.done}" max="${r.progress.total}"></progress><div class="button-group">${btn('Продолжить', 'resume', 'ghost small')}${btn('Пауза', 'pause', 'ghost small')}${btn('Повторить ошибки', 'retry-errors', 'ghost small', r.progress.errors ? '' : 'disabled')}${btn('Лимиты', 'limits', 'ghost small')}${btn('Остановить', 'cancel', 'text-button danger')}</div>${r.stopReason ? `<p class="red">${esc(r.stopReason)}</p>` : ''}<small>Сохранён каждый ответ. Для дальнейшей обработки держите вкладку открытой или запустите CLI. Пауза не отменяет уже отправленный запрос.</small></div>` : ''}`; }
+function overview() { const r = current(); if (!r)
+    return '<p>Создайте прогон.</p>'; const a = stats(r, 'a'), b = stats(r, 'b'), g = gate(r, state.threshold); return `<div class="stats">${[['Качество A', pct(a.rate), `${a.passed} из ${a.graded} прошли`], ['Качество B', pct(b.rate), `${b.passed} из ${b.graded} прошли`], ['Регрессии', g.regressions, 'A проходит → B не проходит'], ['Стоимость', r.billing ? usd(r.billing.unknown ? null : r.billing.knownUsd) : usd(b.cost), r.billing ? `Учтено ${usd(r.billing.knownUsd)} · резерв ${usd(r.billing.heldUsd + r.billing.priorReservedUsd)}` : 'По данным импорта']].map(([l, v, n]) => `<div class="stat"><span>${l}</span><strong>${v}</strong><small>${n}</small></div>`).join('')}</div><div class="summary-grid">${panel('Срезы качества', `<div class="slice-chart">${[...new Set(r.cases.map(c => c.slice))].map(s => { const x = stats(r, 'a', s), y = stats(r, 'b', s); return `<div class="chart-row"><span>${esc(s)}</span><div><div class="bar-track"><div class="bar a" style="width:${(x.rate || 0) * 100}%"></div></div><div class="bar-track"><div class="bar b" style="width:${(y.rate || 0) * 100}%"></div></div></div><b>${pct(y.rate)}</b></div>`; }).join('')}</div><p class="help">Серый — A, зелёный — B. Повторы учитываются как отдельные ответы.</p>`)}${panel('Release gate', `<div class="gate-panel"><div class="gate-icon ${g.state}">${g.state === 'pass' ? '✓' : '!'}</div><h3>${g.label}</h3><p>Все ответы и оценки A/B должны быть готовы.<br>Ошибки и пропуски блокируют выпуск.</p><label>Порог B (%)<input id="threshold" type="number" min="0" max="100" value="${state.threshold}"></label></div>`)}</div>${panel('Ответы и проверки', resultTable(r), btn('Разобрать ошибки', 'to-errors'))}<p class="metrics-note">${r.cases.length} кейсов · ${r.repeats || 1} повторов · judge ${r.judge?.enabled ? 'включён' : 'выключен'} · задержка B ${num(b.latency)} мс. Стоимость неизвестна, пока нет usage и заданного тарифа.</p>`; }
+function resultTable(r, errorsOnly = false) { const cs = r.cases.filter(c => (!query || JSON.stringify(c).toLowerCase().includes(query.toLowerCase())) && (tag === 'all' || c.tags?.includes(tag) || c.slice === tag) && (!errorsOnly || ['regression', 'failure', 'error'].includes(transition(r, c))) && (filter === 'all' || transition(r, c) === filter)); return `<div class="table-tools"><div class="search-group"><input id="result-search" value="${esc(query)}" placeholder="Поиск · Enter" aria-label="Поиск ответов"><select id="result-filter" aria-label="Результат">${opts([['all', 'Все результаты'], ['regression', 'Регрессии'], ['improvement', 'Улучшения'], ['failure', 'Ошибки правил'], ['error', 'Ошибки API'], ['ungraded', 'Без оценки']], filter)}</select><select id="result-tag" aria-label="Тег или срез">${opts([['all', 'Все теги'], ...[...new Set(r.cases.flatMap(c => [c.slice, ...(c.tags || [])]))].map(x => [x, x])], tag)}</select></div><label class="toggle">Повтор<select id="repeat" aria-label="Повтор">${opts(Array.from({ length: r.repeats || 1 }, (_, i) => [String(i), String(i + 1)]), String(repeat))}</select></label></div><div class="table-scroll"><table><thead><tr><th>КЕЙС</th><th>ТЕГИ</th><th>A</th><th>B</th><th>ИЗМЕНЕНИЕ</th><th></th></tr></thead><tbody>${cs.map(c => `<tr><td><strong>${esc(c.title)}</strong><small>${esc(c.id)}</small></td><td>${esc([c.slice, ...(c.tags || [])].join(' · '))}</td><td>${gradeBadge(grade(r, c, 'a', repeat))}</td><td>${gradeBadge(grade(r, c, 'b', repeat))}</td><td><span class="change ${transition(r, c)}">${transition(r, c)}</span></td><td><button class="text-button" data-detail="${esc(c.id)}">Разобрать →</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty-cell">По этим фильтрам кейсов нет.</td></tr>'}</tbody></table></div>`; }
+function versionControl(key, kind) { return `<div class="version-controls">${input('Название версии', 'asset-name-' + key, state.assetNames[key])}<label>Сохранённая версия<select data-load-asset="${key}">${opts([['', 'Черновик'], ...assets.filter(a => kind === 'dataset' ? ['dataset', 'suite'].includes(a.kind) : a.kind === kind).map(a => [a.id, `${a.name} · v${a.version}`])], state.refs[key] || '')}</select></label><button class="ghost" data-save-asset="${key}">Сохранить новую версию</button><button class="text-button" data-diff-asset="${key}">Сравнить версии</button></div>`; }
+function dataset() { const cs = state.cases.filter(c => !query || JSON.stringify(c).toLowerCase().includes(query.toLowerCase())); return `${versionControl('dataset', 'dataset')}<div class="toolbar">${btn('Сохранить таблицу', 'save-grid', 'primary')}${btn('+ Кейс', 'add-case')}${btn('Импорт CSV / JSONL', 'import-dataset')}${btn('Экспорт CSV', 'dataset-csv')}${btn('JSON-редактор', 'dataset-json')}<input id="dataset-search" placeholder="Поиск · Enter" aria-label="Поиск кейсов" value="${esc(query)}"></div><div class="bulk-bar"><span>Выбрано: ${selected.size}</span>${btn('Добавить теги', 'bulk-tags', 'text-button')}${btn('Добавить правило', 'bulk-rule', 'text-button')}${btn('Удалить выбранные', 'bulk-delete', 'text-button danger')}</div><section class="panel"><div class="table-scroll dataset-grid"><table><thead><tr><th><input type="checkbox" id="select-all" aria-label="Выбрать все"></th><th>ID / НАЗВАНИЕ</th><th>ПЕРЕМЕННЫЕ (JSON)</th><th>ЭТАЛОН</th><th>СРЕЗ / ТЕГИ</th><th>ПРАВИЛА</th></tr></thead><tbody>${cs.map(c => `<tr data-row="${esc(c.id)}"><td><input type="checkbox" data-select="${esc(c.id)}" ${selected.has(c.id) ? 'checked' : ''} aria-label="Выбрать ${esc(c.id)}"></td><td><input data-field="id" value="${esc(c.id)}" aria-label="ID ${esc(c.id)}"><input data-field="title" value="${esc(c.title)}" aria-label="Название ${esc(c.id)}"></td><td><textarea data-field="vars" rows="4" aria-label="Переменные ${esc(c.id)}">${esc(pretty(c.vars))}</textarea></td><td><textarea data-field="reference" rows="4" aria-label="Эталон ${esc(c.id)}">${esc(c.reference)}</textarea></td><td><input data-field="slice" value="${esc(c.slice)}" aria-label="Срез ${esc(c.id)}"><input data-field="tags" value="${esc(c.tags.join(', '))}" placeholder="Теги через запятую" aria-label="Теги ${esc(c.id)}"></td><td><button class="ghost small" data-rules="${esc(c.id)}">${c.rules.length} правил · изменить</button><small>${c.rules.map(r => esc(r.type)).join(', ')}</small><button class="text-button" data-clone="${esc(c.id)}">Дублировать</button></td></tr>`).join('')}</tbody></table></div></section><p class="help">Изменения ячеек проверяются и сохраняются при выходе из поля. CSV: id,title,slice,tags,vars,reference,rules или колонки var.question, var.context. Теги CSV разделяются символом |.</p>`; }
+function promptsView() { return `<div class="prompt-grid">${['a', 'b'].map(s => { const p = state.prompts[s]; return `<section class="panel prompt-editor"><div class="panel-heading"><h2>Версия ${s.toUpperCase()}</h2></div><div class="panel-body">${versionControl(s, 'prompt')}${input('Имя промпта', 'prompt-' + s + '-name', p.name)}${input('Модель', 'prompt-' + s + '-model', p.model || provider.defaultModel || '')}${area('System', 'prompt-' + s + '-system', p.system, 4)}${area('User · {{переменная}}', 'prompt-' + s + '-user', p.user, 6)}${area('Few-shot · массив {user, assistant}', 'prompt-' + s + '-examples', pretty(p.examples), 4)}${area('JSON Schema ответа · null отключает', 'prompt-' + s + '-schema', pretty(p.schema), 4)}<div class="fields-row">${input('Макс. токенов', 'prompt-' + s + '-tokens', p.maxTokens, 'number', 'min="16" max="8192"')}${input('Temperature (пусто = default)', 'prompt-' + s + '-temperature', p.params.temperature ?? '', 'number', 'min="0" max="2" step="0.1"')}${input('Top p', 'prompt-' + s + '-top', p.params.top_p ?? '', 'number', 'min="0.01" max="1" step="0.01"')}</div>${input('Seed (пусто = default)', 'prompt-' + s + '-seed', p.params.seed ?? '', 'number')}</div></section>`; }).join('')}</div><div class="toolbar">${btn('Сохранить черновики', 'save-prompts', 'primary')}${btn('Показать отправляемые сообщения', 'preview-prompts')}${btn('Diff A ↔ B', 'prompt-diff')}</div><p class="help">JSON Schema всегда проверяет ответ как grader. Отправка schema в API включается отдельно в настройках совместимости провайдера. Оставьте неподдерживаемые temperature/top_p пустыми.</p>`; }
+function judgeView() { const j = state.judge; return `<div class="summary-grid">${panel('LLM-as-a-judge', `<label class="toggle"><input id="judge-enabled" type="checkbox" ${j.enabled ? 'checked' : ''}> Оценивать каждый ответ моделью</label><p class="help">Judge получает вход, инструкцию, ответ и эталон. Каждый критерий оценивается 0–4 с объяснением. Итог — средневзвешенная доля; проходят и правила, и judge. Оценку judge проверяйте на человеческой разметке.</p>${versionControl('rubric', 'rubric')}${input('Модель judge', 'judge-model', j.model || provider.defaultModel || '')}<div class="fields-row">${input('Порог (0–1)', 'judge-threshold', j.threshold, 'number', 'min="0" max="1" step="0.05"')}${input('Макс. токенов judge', 'judge-tokens', j.maxTokens, 'number', 'min="128" max="4096"')}</div><div id="criteria-list">${j.criteria.map((c, i) => criterionRow(c, i)).join('')}</div><div class="toolbar">${btn('+ Критерий', 'add-criterion')}${btn('Сохранить оценщик', 'save-judge', 'primary')}</div>`)}${panel('Программные проверки', `<p>Правила задаются для каждого кейса в датасете.</p><dl class="rule-help"><dt>contains / notContains / exact</dt><dd>Наличие, отсутствие и точное совпадение.</dd><dt>JSON Schema / field</dt><dd>Типы, обязательные поля и содержимое JSON.</dd><dt>number</dt><dd>Ожидаемое число ± допуск; JSON path по желанию.</dd><dt>regex</dt><dd>RE2, флаги i/m/s; без backtracking.</dd><dt>reference</dt><dd>Сравнение с эталоном: exact, contains, json.</dd><dt>maxWords / json</dt><dd>Количество слов и строгий JSON.</dd></dl><p class="help">Неполный / невалидный ответ judge остаётся ошибкой. Он не превращается в PASS. Regex в Schema pattern не поддержан — добавьте отдельный regex grader.</p>`)}</div>`; }
+function criterionRow(c, i) { return `<fieldset data-criterion="${i}"><legend>Критерий ${i + 1}</legend><div class="fields-row">${input('ID', 'criterion-id-' + i, c.id)}${input('Название', 'criterion-name-' + i, c.name)}${input('Вес', 'criterion-weight-' + i, c.weight, 'number', 'min="0.1" max="100" step="0.1"')}</div>${area('Описание: что считать хорошим ответом', 'criterion-desc-' + i, c.description, 3)}<button class="text-button danger" data-remove-criterion="${i}">Убрать критерий</button></fieldset>`; }
+function errorsView() { if (!current()?.cases)
+    return panel('Нет прогона', '<p>Создайте или откройте эксперимент.</p>'); return panel('Ошибки и регрессии', resultTable(current(), true), btn('Regression suites', 'suites')); }
+function reviewCases() { const r = current(); if (!r?.cases)
+    return []; return r.cases.filter(c => !unreviewed || !r.reviews?.[c.id]?.winner || r.reviews[c.id].winner === 'skip'); }
+function reviewView() { if (!current()?.cases)
+    return panel('Нет прогона', '<p>Создайте или откройте эксперимент.</p>'); const r = current(), cs = reviewCases(), c = cs[Math.min(reviewIndex, cs.length - 1)], cal = calibration(r); return `<div class="toolbar"><label class="toggle"><input id="blind" type="checkbox" ${blind ? 'checked' : ''}> Слепое сравнение</label><label class="toggle"><input id="unreviewed" type="checkbox" ${unreviewed ? 'checked' : ''}> Только неоценённые</label>${btn('Настроить шкалу следующего прогона', 'review-scale', 'text-button')}</div>${c ? reviewCard(r, c, cs) : panel('Очередь размечена', '<p>Новых кейсов нет. Снимите фильтр, чтобы пересмотреть оценки.</p>')}<div class="spacer"></div>${panel('Калибровка judge ↔ человек', `<p>Совпадение предпочтений: <b>${pct(cal.agreement)}</b> · ${cal.n} размеченных пар.</p><p class="help">Для пары сравнивается взвешенный score judge в первом повторе и выбор человека A/B/ничья. Это диагностика согласованности, а не гарантия корректности judge.</p>${cal.items.filter(x => !x.agree).map(x => `<p><button class="text-button" data-detail="${esc(x.id)}">${esc(x.id)}</button> · человек ${x.human}, judge ${x.judge}</p>`).join('') || '<p class="help">Расхождений на размеченных парах пока нет.</p>'}`)}`; }
+function reviewCard(r, c, cs) { const sides = blind && hash(r.id + c.id) % 2 ? ['b', 'a'] : ['a', 'b'], rev = r.reviews?.[c.id] || {}; return `<div class="review-context"><p class="eyebrow">${reviewIndex + 1} / ${cs.length} · ${esc(c.id)}</p><h2>${esc(c.title)}</h2><pre>${esc(pretty(c.vars))}</pre></div><div class="prompt-grid">${sides.map((s, i) => `<section class="panel answer-card"><div class="panel-heading"><h2>${blind ? 'Ответ ' + (i + 1) : esc(r.prompts[s].name)}</h2></div><pre>${esc(r.results[c.id]?.[s]?.error || r.results[c.id]?.[s]?.text || 'Ответ не готов')}</pre></section>`).join('')}</div><section class="panel review-controls"><h2>Какой ответ лучше?</h2><div class="vote-options">${[[sides[0], '1 · Ответ 1'], ['tie', '2 · Ничья'], [sides[1], '3 · Ответ 2'], ['skip', 'S · Позже']].map(([s, l]) => `<button class="${rev.winner === s ? 'primary' : 'ghost'}" data-vote="${s}" data-case="${esc(c.id)}">${l}</button>`).join('')}</div><label>Общая оценка пары<select id="review-rating" data-case="${esc(c.id)}">${opts([['', 'Не оценено'], ...(r.reviewScale || ['Плохо', 'Частично', 'Хорошо', 'Отлично']).map((x, i) => [String(i), x])], rev.rating === undefined ? '' : String(rev.rating))}</select></label>${area('Комментарий', 'review-note', rev.note || '', 2)}<div class="review-nav">${btn('← Назад', 'prev-review')}<span>Горячие клавиши: 1 / 2 / 3 / S · J следующий · K предыдущий</span>${btn('Следующий →', 'next-review')}</div></section>`; }
+function hash(s) { let h = 0; for (const c of s)
+    h = (h * 31 + c.charCodeAt(0)) | 0; return h >>> 0; }
+function historyView() { return panel('Сохранённые эксперименты', state.runs.map(r => { const b = r.stub ? r.summary.b : stats(r, 'b'); return `<div class="history-row"><div class="history-icon">◷</div><div><b>${esc(r.name)}</b><small>${new Date(r.createdAt).toLocaleString('ru-RU')} · ${status(r)} · ${r.cloud ? r.status : 'локальный'} · ${r.repeats || 1} повторов</small></div><strong>${pct(b.rate)}</strong><button class="ghost" data-open="${r.id}">Открыть</button><button class="text-button" data-baseline="${r.id}">Baseline</button><button class="text-button danger" data-archive="${r.id}">${r.cloud ? 'В архив' : 'Убрать'}</button></div>`; }).join(''), btn('Архив', 'archive') + btn('Импорт эксперимента', 'import-bundle')); }
+function compareView() { return `${panel('Baseline и candidate', `<div class="compare-selectors"><label>Baseline<select id="compare-baseline">${opts(state.runs.map(r => [r.id, r.name]), compare.baseline)}</select></label><label>Сторона baseline<select id="compare-baseline-side">${opts([['a', 'A'], ['b', 'B']], compare.baselineSide)}</select></label><label>Candidate<select id="compare-candidate">${opts(state.runs.map(r => [r.id, r.name]), compare.candidate)}</select></label><label>Сторона candidate<select id="compare-candidate-side">${opts([['a', 'A'], ['b', 'B']], compare.candidateSide)}</select></label></div>${input('Тег / срез (пусто = все)', 'compare-tag', compare.tag === 'all' ? '' : compare.tag)}<div class="toolbar">${btn('Сравнить прогоны', 'compare-runs', 'primary')}${btn('Экспорт сравнения', 'compare-export', 'ghost', compareResult ? '' : 'disabled')}</div>`)}${compareResult ? comparisonHtml(compareResult) : '<p class="help">Сопоставляются одинаковые id, переменные, эталоны и правила. Пропуски и изменённые кейсы показываются отдельно. Доверительный интервал строится по кейсам, а не по зависимым повторам.</p>'}`; }
+function comparisonHtml(x) { return `<div class="spacer"></div><div class="stats">${[['Baseline', pct(x.baseline)], ['Candidate', pct(x.candidate)], ['Δ качества', x.delta === null ? '—' : (x.delta * 100).toFixed(1) + ' п.п.'], ['Парные кейсы', x.paired]].map(([k, v]) => `<div class="stat"><span>${k}</span><strong>${v}</strong></div>`).join('')}</div>${panel(esc(x.verdict), `<p>95% CI Δ: <b>${x.ci ? x.ci.map(v => (v * 100).toFixed(1)).join(' … ') + ' п.п.' : 'недостаточно кейсов'}</b></p><p class="help">${esc(x.method)}</p><table><tr><th>МЕТРИКА</th><th>BASELINE</th><th>CANDIDATE</th></tr><tr><td>Средняя задержка (мс)</td><td>${num(x.baselineMetrics.latency)}</td><td>${num(x.candidateMetrics.latency)}</td></tr><tr><td>Стоимость ответов (USD)</td><td>${usd(x.baselineMetrics.cost)}</td><td>${usd(x.candidateMetrics.cost)}</td></tr><tr><td>SD качества по повторам</td><td>${pct(x.baselineMetrics.sd)}</td><td>${pct(x.candidateMetrics.sd)}</td></tr></table><p>Регрессии: ${esc(x.regressions.join(', ') || 'нет')} · Улучшения: ${esc(x.improvements.join(', ') || 'нет')}</p><details ${x.excluded.length ? 'open' : ''}><summary>Исключено: ${x.excluded.length}</summary>${x.excluded.map(c => `<p>${esc(c.id)} — ${esc(c.reason)}</p>`).join('')}</details>`)} `; }
+function settingsView() { return `${panel('OpenAI-compatible Chat Completions API', `<p class="help">Ключ вводится здесь и передаётся на сервер по HTTPS. На сервере он шифруется AES-GCM; браузер и экспорт его не сохраняют. Доступ к приложению остаётся приватным.</p><p>Состояние: <b>${provider.configured ? 'ключ подключён (' + esc(provider.keySource) + ')' : 'ключ не задан'}</b> · хранилище ${provider.vaultReady ? 'готово' : 'не настроено'}</p>${input('Endpoint (полный HTTPS URL)', 'provider-endpoint', provider.endpoint || 'https://api.openai.com/v1/chat/completions')}${input('Модель по умолчанию', 'provider-model', provider.defaultModel || '')}${input('API key · пусто сохраняет текущий', 'provider-key', '', 'password', 'autocomplete="new-password"')}${area('Тарифы: USD за 1M токенов · {"model": {"input": 0, "output": 0}}', 'provider-pricing', pretty(provider.pricing || {}), 6)}<label class="toggle"><input id="provider-schema" type="checkbox" ${provider.structuredOutput ? 'checked' : ''}> API поддерживает response_format json_schema</label><div class="toolbar">${btn('Сохранить подключение', 'save-provider', 'primary')}${btn('Проверить · 1 короткий запрос', 'test-provider', 'ghost', provider.configured ? '' : 'disabled')}${btn('Удалить сохранённый ключ', 'clear-provider', 'text-button danger')}</div><p class="help">После проверки запустите пилот на 2–3 кейсах. Доступность конкретной модели, её параметры и тарифы определяет ваш провайдер. Без тарифов показываются токены, но не выдуманная цена.</p>`)}<div class="spacer"></div>${panel('Воспроизводимость и CLI', `<p>Скачайте BUNDLE из прогона: датасет, сообщения, параметры, rubric, ответы, usage, оценки и человеческая разметка сохраняются вместе.</p><pre>node cli/evalbench.mjs run --config examples/experiment.json --synthetic --out artifacts\nnode cli/evalbench.mjs compare --baseline RUN_ID --candidate RUN_ID --fail-on-regression</pre><p class="help">EVALBENCH_URL задаёт адрес этого приложения. Для приватного служебного доступа используйте EVALBENCH_TOKEN_FILE с токеном Sites. Ключ модели в CLI не нужен.</p>`)}`; }
+function collectPrompts() { for (const s of ['a', 'b']) {
+    const get = k => $('#prompt-' + s + '-' + k).value;
+    const params = {};
+    for (const [field, key] of [['temperature', 'temperature'], ['top', 'top_p'], ['seed', 'seed']])
+        if (get(field) !== '')
+            params[key] = Number(get(field));
+    state.prompts[s] = normalizePrompt({ name: get('name'), model: get('model'), system: get('system'), user: get('user'), examples: JSON.parse(get('examples')), schema: JSON.parse(get('schema')), maxTokens: Number(get('tokens')), params });
+    delete state.refs[s];
+} persist(); }
+function collectJudge() { const criteria = [...document.querySelectorAll('[data-criterion]')].map(el => { const i = el.dataset.criterion; return { id: $('#criterion-id-' + i).value, name: $('#criterion-name-' + i).value, description: $('#criterion-desc-' + i).value, weight: Number($('#criterion-weight-' + i).value) }; }); state.judge = normalizeJudge({ enabled: $('#judge-enabled').checked, model: $('#judge-model').value, threshold: Number($('#judge-threshold').value), maxTokens: Number($('#judge-tokens').value), criteria }); delete state.refs.rubric; persist(); }
+function collectDataset() {
+    const next = structuredClone(state.cases);
+    for (const row of document.querySelectorAll('[data-row]')) {
+        const i = state.cases.findIndex(c => c.id === row.dataset.row);
+        if (i < 0)
+            continue;
+        for (const el of row.querySelectorAll('[data-field]')) {
+            const f = el.dataset.field;
+            next[i][f] = f === 'vars' ? JSON.parse(el.value) : f === 'tags' ? el.value.split(',').map(s => s.trim()).filter(Boolean) : el.value;
+        }
     }
-    else
-        activeRun = id;
-    view = nextView;
-    render();
+    state.cases = validateCases(next);
+    delete state.refs.dataset;
+    persist();
+}
+async function saveAsset(key) { if (key === 'dataset')
+    collectDataset(); if (view === 'prompts')
+    collectPrompts(); if (key === 'rubric')
+    collectJudge(); state.assetNames[key] = $('#asset-name-' + key).value; const kind = key === 'dataset' ? (state.assetKinds.dataset||'dataset') : key === 'rubric' ? 'rubric' : 'prompt', content = key === 'dataset' ? state.cases : key === 'rubric' ? state.judge : state.prompts[key]; const { asset } = await api('/assets', 'POST', { kind, name: state.assetNames[key], familyId: state.families[key], content }); state.refs[key] = asset.id; state.families[key] = asset.familyId; assets.unshift(asset); persist(); render(); toast('Сохранена неизменяемая версия v' + asset.version); }
+function loadAsset(key, id) { const a = assets.find(x => x.id === id); if (!a) {
+    delete state.refs[key];
+    persist();
+    return;
+} if (key === 'dataset')
+    state.cases = validateCases(a.content);
+else if (key === 'rubric')
+    state.judge = normalizeJudge(a.content);
+else
+    state.prompts[key] = normalizePrompt(a.content); state.refs[key] = a.id; state.families[key] = a.familyId;
+    state.assetKinds[key] = a.kind; state.assetNames[key] = a.name; persist(); render(); }
+function diffHtml(a, b) { const d = textDiff(a, b); return `<div class="diff">${d.parts.map(p => `<${p.type === 'del' ? 'del' : p.type === 'ins' ? 'ins' : 'span'}>${esc(p.text)}</${p.type === 'del' ? 'del' : p.type === 'ins' ? 'ins' : 'span'}>`).join('')}</div>${d.truncated ? '<p class="help">Diff ограничен первыми 400 токенами текста. Полные ответы доступны выше и в экспорте.</p>' : ''}`; }
+function assetDiff(key) { const list = assets.filter(a => key === 'dataset' ? ['dataset', 'suite'].includes(a.kind) : a.kind === (key === 'rubric' ? 'rubric' : 'prompt')); modal('Сравнение сохранённых версий', `<div class="fields-row"><label>Ранняя версия<select id="diff-old">${opts(list.map(a => [a.id, `${a.name} v${a.version}`]), list[1]?.id)}</select></label><label>Новая версия<select id="diff-new">${opts(list.map(a => [a.id, `${a.name} v${a.version}`]), list[0]?.id)}</select></label></div><div id="asset-diff"></div>`, d => { const show = () => { const a = list.find(a => a.id === d.querySelector('#diff-old').value), b = list.find(a => a.id === d.querySelector('#diff-new').value); d.querySelector('#asset-diff').innerHTML = a && b ? diffHtml(pretty(a.content), pretty(b.content)) : 'Сохраните две версии.'; }; d.querySelectorAll('select').forEach(x => x.onchange = show); show(); }); }
+function ruleEditor(id, bulk = false) {
+    const c = state.cases.find(c => c.id === id);
+    const rules = bulk ? [] : structuredClone(c.rules);
+    modal(bulk ? 'Добавить правило выбранным кейсам' : 'Правила · ' + c.id, `<div id="rules-list"></div><fieldset><legend>Новое правило</legend><label>Тип<select id="rule-type">${opts(ruleTypes.map(t => [t, t]), 'contains')}</select></label><div id="rule-fields"></div><div class="toolbar">${btn('Добавить правило', 'add-rule', 'ghost')}</div></fieldset><div class="toolbar">${btn('Сохранить правила', 'commit-rules', 'primary')}</div>`, d => {
+        const fields = () => { const t = d.querySelector('#rule-type').value; d.querySelector('#rule-fields').innerHTML = (['contains', 'notContains', 'exact'].includes(t) ? input('Ожидаемый текст', 'rule-value', '') : t === 'maxWords' ? input('Максимум слов', 'rule-value', 30, 'number') : t === 'jsonSchema' ? area('JSON Schema', 'rule-schema', pretty({ type: 'object', required: ['answer'], properties: { answer: { type: 'string' } }, additionalProperties: false }), 8) : t === 'regex' ? input('RE2 pattern', 'rule-pattern', '^OK$') + input('Флаги (i/m/s)', 'rule-flags', '') : t === 'number' ? input('Ожидаемое число', 'rule-value', 42, 'number', 'step="any"') + input('Допуск', 'rule-tolerance', .1, 'number', 'step="any" min="0"') + input('JSON path (пусто = весь ответ)', 'rule-path', '') : t === 'field' ? input('JSON path', 'rule-path', 'answer') + `<label>Оператор<select id="rule-op">${opts([['eq', 'Равно'], ['contains', 'Содержит'], ['exists', 'Существует']], 'eq')}</select></label>` + area('Ожидаемое значение (JSON)', 'rule-value', '"OK"', 2) : t === 'reference' ? `<label>Сравнение<select id="rule-mode">${opts([['exact', 'Точно'], ['contains', 'Содержит эталон'], ['json', 'JSON без учёта порядка ключей']], 'exact')}</select></label>` : '<p>Проверяет строгий JSON.</p>'); };
+        const show = () => { d.querySelector('#rules-list').innerHTML = rules.map((r, i) => `<div class="rule-row"><code>${esc(JSON.stringify(r))}</code><button class="text-button danger" data-remove-rule="${i}">Удалить</button></div>`).join('') || '<p class="help">Без правил и judge ответ не имеет оценки.</p>'; d.querySelectorAll('[data-remove-rule]').forEach(b => b.onclick = () => { rules.splice(+b.dataset.removeRule, 1); show(); }); };
+        d.querySelector('#rule-type').onchange = fields;
+        fields();
+        show();
+        d.querySelector('[data-action="add-rule"]').onclick = safe(() => { const type = d.querySelector('#rule-type').value, get = id => d.querySelector('#rule-' + id)?.value; let r = { type }; if (['contains', 'notContains', 'exact'].includes(type))
+            r.value = get('value'); if (type === 'maxWords')
+            r.value = Number(get('value')); if (type === 'jsonSchema')
+            r.schema = JSON.parse(get('schema')); if (type === 'regex') {
+            r.pattern = get('pattern');
+            r.flags = get('flags');
+        } if (type === 'number') {
+            r.value = Number(get('value'));
+            r.tolerance = Number(get('tolerance'));
+            if (get('path'))
+                r.path = get('path');
+        } if (type === 'field') {
+            r.path = get('path');
+            r.op = get('op');
+            if (r.op !== 'exists')
+                r.value = JSON.parse(get('value'));
+        } if (type === 'reference')
+            r.mode = get('mode'); validateCases([{ ...(c || state.cases[0]), reference: (c || state.cases[0]).reference || 'preview', rules: [r] }]); rules.push(r); show(); });
+        d.querySelector('[data-action="commit-rules"]').onclick = safe(() => { state.cases = validateCases(state.cases.map(x => bulk && selected.has(x.id) ? { ...x, rules: [...x.rules, ...rules] } : x.id === id ? { ...x, rules } : x)); delete state.refs.dataset; persist(); d.close(); render(); toast('Правила сохранены'); });
+    });
+}
+function datasetImport() { modal('Импорт набора тестов', `<p>CSV, JSONL или JSON. Весь набор проверяется до замены черновика.</p><label>Формат<select id="import-format">${opts([['csv', 'CSV'], ['jsonl', 'JSONL'], ['json', 'JSON']], 'csv')}</select></label><label>Файл<input type="file" id="dataset-file" accept=".csv,.jsonl,.json"></label>${area('Или вставьте данные', 'import-text', '', 12)}<div class="toolbar">${btn('Проверить и импортировать', 'commit-import', 'primary')}</div>`, d => { d.querySelector('#dataset-file').onchange = safe(async (e) => { const f = e.target.files[0]; if (f.size > 4000000)
+    throw Error('Максимум 4 МБ.'); d.querySelector('#import-text').value = await f.text(); d.querySelector('#import-format').value = f.name.endsWith('.csv') ? 'csv' : f.name.endsWith('.jsonl') ? 'jsonl' : 'json'; }); d.querySelector('[data-action="commit-import"]').onclick = safe(() => { const cs = importDataset(d.querySelector('#import-text').value, d.querySelector('#import-format').value); state.cases = cs; state.refs.dataset = null; selected.clear(); persist(); d.close(); render(); toast(`Импортировано ${cs.length} кейсов`); }); }); }
+function jsonDataset() { modal('JSON-редактор датасета', area('Массив кейсов', 'dataset-json', pretty(state.cases), 18) + btn('Проверить и сохранить', 'save-json', 'primary'), d => { d.querySelector('[data-action="save-json"]').onclick = safe(() => { state.cases = validateCases(JSON.parse(d.querySelector('#dataset-json').value)); delete state.refs.dataset; persist(); d.close(); render(); }); }); }
+function detail(id) { const r = current(), c = r.cases.find(c => c.id === id); modal('Разбор · ' + c.title, `<p class="eyebrow">${esc(c.id)} · повтор ${repeat + 1}</p><details><summary>Вход, эталон и теги</summary><pre>${esc(pretty(c))}</pre></details><div class="prompt-grid">${['a', 'b'].map(s => { const result = (r.repetitions?.[repeat] || r.results)[c.id]?.[s], g = grade(r, c, s, repeat); return `<section class="answer-detail"><h3>${s.toUpperCase()} · ${esc(r.prompts[s].name)} ${gradeBadge(g)}</h3><pre>${esc(result?.error || result?.text || 'Ответ не готов')}</pre><div class="checks">${g.checks.map(k => `<p class="${k.pass ? 'green' : 'red'}">${k.pass ? '✓' : '×'} ${esc(k.type)}: ${esc(k.reason)}</p>`).join('')}</div>${g.judge ? `<h4>Judge · ${pct(g.judge.score)}</h4>${g.judge.criteria?.map(k => `<p><b>${esc(k.id)}: ${k.score}/4</b><br>${esc(k.reason)}</p>`).join('') || `<p class="red">${esc(g.judge.error)}</p>`}` : g.error ? `<p class="red">${esc(g.error)}</p>` : ''}<details><summary>Сообщения и метаданные</summary><pre>${esc(pretty({ messages: messages(r.prompts[s], c), result }))}</pre></details></section>`; }).join('')}</div><h3>Diff ответов</h3>${diffHtml((r.repetitions?.[repeat] || r.results)[c.id]?.a?.text || '', (r.repetitions?.[repeat] || r.results)[c.id]?.b?.text || '')}<fieldset><legend>Добавить в regression suite</legend><label>Набор<select id="suite-family">${opts([['', 'Новый набор'], ...latestAssets('suite').map(a => [a.familyId, a.name])], '')}</select></label>${input('Название нового набора', 'suite-name', 'Regression suite')}${btn('Сохранить кейс в suite', 'add-suite', 'primary', r.cloud ? '' : 'disabled')}</fieldset>`, d => { d.querySelector('[data-action="add-suite"]').onclick = safe(async () => { const { asset } = await api('/runs/' + r.id + '/regressions', 'POST', { caseId: c.id, familyId: d.querySelector('#suite-family').value || undefined, name: d.querySelector('#suite-name').value }); assets.unshift(asset); toast('Кейс сохранён в ' + asset.name + ' v' + asset.version); }); }); }
+function latestAssets(kind) { const seen = new Set(); return assets.filter(a => { if (a.kind !== kind || seen.has(a.familyId))
+    return false; seen.add(a.familyId); return true; }); }
+function runConfig(d, pilot = false) { const type = d.querySelector('#run-provider').value; return { id: uid(), name: d.querySelector('#run-name').value + (pilot ? ' · pilot' : ''), provider: type, cases: pilot ? state.cases.slice(0, 3) : state.cases, prompts: state.prompts, judge: state.judge, repeats: Number(d.querySelector('#run-repeats').value), concurrency: Number(d.querySelector('#run-concurrency').value), maxRequests: Number(d.querySelector('#run-requests').value), budgetUsd: d.querySelector('#run-budget').value === '' ? null : Number(d.querySelector('#run-budget').value), assetRefs: type === 'synthetic' ? {} : { ...state.refs, ...(pilot ? { dataset: null } : {}) }, reviewScale: state.reviewScale, pilot }; }
+function newRun() {
+    if (view === 'prompts')
+        collectPrompts();
+    if (view === 'judge')
+        collectJudge();
+    let estimated = '';
+    modal('Новый эксперимент', `${input('Название', 'run-name', 'Experiment · ' + new Date().toLocaleDateString('ru-RU'))}<label>Источник ответов<select id="run-provider">${opts([['model', 'Модель через серверный API'], ['synthetic', 'Синтетический приёмочный тест · 8 кейсов'], ['import', 'Импорт готовых ответов']], provider.configured ? 'model' : 'synthetic')}</select></label><div class="fields-row">${input('Повторов на кейс', 'run-repeats', 1, 'number', 'min="1" max="5"')}${input('Параллельность', 'run-concurrency', 2, 'number', 'min="1" max="8"')}${input('Лимит запросов', 'run-requests', 2000, 'number', 'min="1" max="10000"')}${input('Бюджет USD (пусто = без лимита)', 'run-budget', '', 'number', 'min="0.000001" step="0.01"')}</div><p class="help">Текущий датасет: ${state.cases.length} кейсов, judge ${state.judge.enabled ? 'включён' : 'выключен'}. Синтетический режим использует независимые 8 кейсов и фиксированные ответы. Все выбранные параметры сохраняются в снимке.</p><div id="run-estimate" class="info-box">Перед платным запуском рассчитайте объём. Пилот берёт первые 3 кейса.</div>${area('Импорт ответов: [{id,a:{text},b:{text}}]', 'run-import', '', 5)}<div class="toolbar">${btn('Рассчитать объём', 'estimate-run')}${btn('Пилот · 3 кейса', 'pilot-run')}${btn('Запустить', 'start-run', 'primary')}</div>`, d => {
+        const signature = c => JSON.stringify({ ...c, id: null, name: null });
+        d.querySelector('[data-action="estimate-run"]').onclick = safe(async () => { const config = runConfig(d); if (config.provider === 'import') {
+            d.querySelector('#run-estimate').textContent = 'Импорт не отправляет запросов модели.';
+            return;
+        } const { estimate: e } = await api('/estimate', 'POST', config); estimated = signature(config); d.querySelector('#run-estimate').innerHTML = `<b>${e.requests} запросов</b> · вход ~${num(e.inputTokensEstimate)} токенов · максимум выхода ${num(e.outputTokensLimit)}<br>Оценка: ${usd(e.estimatedUsd)} · резерв: ${usd(e.reservedUsd)}<p class="help">${esc(e.note)}</p>`; });
+        const start = pilot => safe(async () => {
+            const config = runConfig(d, pilot);
+            if (config.provider === 'model' && !provider.configured)
+                throw Error('Сначала подключите ключ в разделе «Провайдер».');
+            if (config.provider === 'model' && !pilot && estimated !== signature(config))
+                throw Error('Рассчитайте объём для выбранных параметров перед запуском.');
+            if (pilot && config.provider === 'model') {
+                const { estimate: e } = await api('/estimate', 'POST', config);
+                if (!d.dataset.pilotReady) {
+                    d.dataset.pilotReady = signature(config);
+                    d.querySelector('#run-estimate').textContent = `Пилот: ${config.cases.length} кейсов, ${e.requests} запросов. Оценка ${usd(e.estimatedUsd)}, резерв ${usd(e.reservedUsd)}. Нажмите «Пилот» ещё раз для запуска.`;
+                    return;
+                }
+                if (d.dataset.pilotReady !== signature(config)) {
+                    delete d.dataset.pilotReady;
+                    throw Error('Параметры изменились. Рассчитайте пилот ещё раз.');
+                }
+            }
+            if (config.provider === 'import')
+                config.results = JSON.parse(d.querySelector('#run-import').value);
+            const { run } = await api('/runs', 'POST', config);
+            putRun(run);
+            active = run.id;
+            compare = { baseline: run.id, candidate: run.id, baselineSide: 'a', candidateSide: 'b', tag: 'all' };
+            compareResult = null;
+            view = 'overview';
+            d.close();
+            render();
+            if (run.status === 'running')
+                drive(run.id);
+        });
+        d.querySelector('[data-action="start-run"]').onclick = start(false);
+        d.querySelector('[data-action="pilot-run"]').onclick = start(true);
+    });
+}
+async function drive(id) { if (driveId)
+    return; const driver = { id }; driveId = driver; busy = true; let stop = false; try {
+    const r = await full(id);
+    await Promise.all(Array.from({ length: r.concurrency || 2 }, async () => { while (!stop && driveId === driver) {
+        const { run } = await api('/runs/' + id + '/advance', 'POST', {});
+        if ((state.runs.find(r => r.id === id)?.progress?.done || 0) <= run.progress.done)
+            putRun(run);
+        if (active === id && ['overview', 'errors'].includes(view) && !$('#modal').open)
+            render();
+        if (run.status !== 'running')
+            stop = true;
+        else if (run.progress.running && run.progress.pending === 0)
+            await new Promise(resolve => setTimeout(resolve, 350));
+    } }));
+    toast('Очередь: ' + current()?.status);
 }
 catch (e) {
     toast(e.message);
-} }
-async function driveRun(id) { if (busy)
-    return; busy = true; stopRequested = false; activeRun = id; render(); try {
-    const worker = async () => { let idle = 0; while (!stopRequested) {
-        const { run: r, waiting } = await api('/api/runs/' + id + '/advance', { method: 'POST', body: {} });
-        acceptCloudRun(r);
-        render();
-        if (r.status === 'completed')
-            return;
-        if (waiting) {
-            if (++idle > 100)
-                throw Error('Задание ещё выполняется. Повторите «Продолжить» позже.');
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-        else
-            idle = 0;
-    } };
-    await Promise.all([worker(), worker()]);
-    toast(stopRequested ? 'Прогон приостановлен. Готовые ответы сохранены.' : 'Прогон завершён и сохранён на сервере.');
-}
-catch (e) {
-    stopRequested = true;
-    toast(e.message + ' Сохранённый прогон можно продолжить.');
 }
 finally {
-    busy = false;
+    if (driveId === driver) {
+        driveId = null;
+        busy = false;
+    }
     render();
 } }
-async function saveReview(r, id, review) { try {
-    await api('/api/runs/' + r.id, { method: 'PATCH', body: { caseId: id, review } });
+async function control(action, data = {}) { const r = current(); if (!r?.cloud)
+    throw Error('У этого прогона нет серверной очереди.'); const { run } = await api('/runs/' + r.id + '/control', 'POST', { action, ...data }); putRun(run); if (action === 'pause' || action === 'cancel')
+    driveId = null; render(); if (['resume', 'retry-errors'].includes(action) && !driveId)
+    drive(r.id); }
+function limits() { const r = current(); modal('Лимиты очереди', input('Параллельность', 'limit-concurrency', r.concurrency, 'number', 'min="1" max="8"') + input('Лимит запросов (включая повторные попытки)', 'limit-requests', r.maxRequests, 'number', 'min="1" max="10000"') + input('Бюджет USD (пусто = без лимита)', 'limit-budget', r.budgetUsd ?? '', 'number', 'min="0.000001" step="0.01"') + '<p class="help">Сумма фактической стоимости и резервов проверяется перед каждым запросом. Если usage неизвестен, резерв сохраняется. Перезапуск ошибки может оплачиваться повторно.</p>' + btn('Сохранить лимиты', 'save-limits', 'primary'), d => { d.querySelector('[data-action="save-limits"]').onclick = safe(async () => { await control('limits', { concurrency: Number(d.querySelector('#limit-concurrency').value), maxRequests: Number(d.querySelector('#limit-requests').value), budgetUsd: d.querySelector('#limit-budget').value === '' ? null : Number(d.querySelector('#limit-budget').value) }); d.close(); }); }); }
+async function reviewPatch(patch, cid) { const r = current(), c = cid || reviewCases()[Math.min(reviewIndex, reviewCases().length - 1)]?.id; if (!c)
+    return; if (r.cloud) {
+    putRun((await api('/runs/' + r.id, 'PATCH', { caseId: c, review: patch })).run);
 }
-catch (e) {
-    toast('Оценка сохранена только в браузере: ' + e.message);
+else {
+    r.reviews ||= {};
+    r.reviews[c] = { ...r.reviews[c], ...patch };
+    persist();
 } }
-const reviewTimers = new Map();
-function queueReview(r, id, note) { const key = r.id + ':' + id; clearTimeout(reviewTimers.get(key)); reviewTimers.set(key, setTimeout(() => { reviewTimers.delete(key); saveReview(r, id, { note }); }, 450)); }
-async function showArchive() { try {
-    const { runs } = await api('/api/runs?archived=1');
-    modal('Архив прогонов', runs.length ? runs.map(r => `<div class="history-row"><b>${esc(r.name)}</b><button class="ghost" data-restore="${esc(r.id)}">Восстановить</button></div>`).join('') : '<p>Архив пуст.</p>', d => { d.querySelectorAll('[data-restore]').forEach(b => b.onclick = async () => { try {
-        await api('/api/runs/' + b.dataset.restore, { method: 'PATCH', body: { archived: false } });
-        d.close();
-        await refreshCloud();
-        toast('Прогон восстановлен');
+async function vote(side, cid) { await saveReviewNote(); await reviewPatch({ winner: side }, cid); if (!unreviewed)
+    reviewIndex = Math.min(reviewIndex + 1, reviewCases().length - 1); render(); }
+async function saveReviewNote() { const el = $('#review-note'); if (el) {
+    const c = reviewCases()[Math.min(reviewIndex, reviewCases().length - 1)];
+    if (c && el.value !== (current().reviews?.[c.id]?.note || ''))
+        await reviewPatch({ note: el.value }, c.id);
+} }
+function importBundle() { modal('Восстановить эксперимент', `<label>Bundle JSON<input type="file" id="bundle-file" accept=".json"></label>${area('Или вставьте содержимое bundle', 'bundle-text', '', 10)}${btn('Импортировать как новый прогон', 'commit-bundle', 'primary')}`, d => { d.querySelector('#bundle-file').onchange = safe(async (e) => { const f = e.target.files[0]; if (f.size > 4000000)
+    throw Error('Максимум 4 МБ.'); d.querySelector('#bundle-text').value = await f.text(); }); d.querySelector('[data-action="commit-bundle"]').onclick = safe(async () => { const { run } = await api('/runs', 'POST', { id: uid(), bundle: JSON.parse(d.querySelector('#bundle-text').value) }); putRun(run); active = run.id; view = 'overview'; d.close(); render(); toast('Эксперимент восстановлен без вызовов моделей'); }); }); }
+async function providerSave(clearKey = false) { const data = { endpoint: $('#provider-endpoint').value, defaultModel: $('#provider-model').value, pricing: JSON.parse($('#provider-pricing').value), structuredOutput: $('#provider-schema').checked, clearKey }; const key = $('#provider-key'); if (key.value && !clearKey)
+    data.key = key.value; provider = (await api('/provider', 'POST', data)).provider; key.value = ''; render(); toast(clearKey ? 'Сохранённый ключ удалён' : 'Подключение сохранено'); }
+const actions = {
+    'new-run': newRun, 'to-errors': () => { view = 'errors'; render(); }, 'local-export': () => download('evalbench-experiment.json', pretty(current())),
+    'add-case': () => { state.cases.push({ id: 'case-' + uid().slice(0, 8), title: 'Новый кейс', slice: 'Общее', tags: [], vars: { question: '' }, reference: '', rules: [] }); delete state.refs.dataset; persist(); render(); },
+    'save-grid': () => { collectDataset(); render(); toast('Таблица сохранена'); }, 'import-dataset': datasetImport, 'dataset-json': jsonDataset, 'dataset-csv': () => download('dataset.csv', datasetCsv(state.cases), 'text/csv'),
+    'bulk-delete': () => { if (!selected.size)
+        throw Error('Выберите кейсы.'); const next = state.cases.filter(c => !selected.has(c.id)); state.cases = validateCases(next); selected.clear(); delete state.refs.dataset; persist(); render(); },
+    'bulk-tags': () => { if (!selected.size)
+        throw Error('Выберите кейсы.'); modal('Добавить теги выбранным кейсам', input('Теги через запятую', 'bulk-tag-input', '') + btn('Добавить', 'commit-tags', 'primary'), d => { d.querySelector('[data-action="commit-tags"]').onclick = safe(() => { const tags = d.querySelector('#bulk-tag-input').value.split(',').map(s => s.trim()).filter(Boolean); state.cases = validateCases(state.cases.map(c => selected.has(c.id) ? { ...c, tags: [...new Set([...c.tags, ...tags])] } : c)); delete state.refs.dataset; persist(); d.close(); render(); }); }); },
+    'bulk-rule': () => { if (!selected.size)
+        throw Error('Выберите кейсы.'); ruleEditor(null, true); },
+    'save-prompts': () => { collectPrompts(); toast('Черновики сохранены'); }, 'preview-prompts': () => { collectPrompts(); modal('Сообщения перед отправкой', `<label>Кейс<select id="preview-case">${opts(state.cases.map(c => [c.id, c.title]), state.cases[0].id)}</select></label><div id="prompt-preview"></div>`, d => { const show = () => { const c = state.cases.find(c => c.id === d.querySelector('#preview-case').value); d.querySelector('#prompt-preview').innerHTML = `<div class="prompt-grid">${['a', 'b'].map(s => `<div><h3>${s.toUpperCase()}</h3><pre>${esc(pretty(messages(state.prompts[s], c)))}</pre></div>`).join('')}</div>`; }; d.querySelector('#preview-case').onchange = show; show(); }); },
+    'prompt-diff': () => { collectPrompts(); modal('Diff A ↔ B', diffHtml(pretty(state.prompts.a), pretty(state.prompts.b))); },
+    'save-judge': () => { collectJudge(); toast('Оценщик сохранён'); }, 'add-criterion': () => { collectJudge(); state.judge.criteria.push({ id: 'criterion' + (state.judge.criteria.length + 1), name: 'Критерий', description: 'Опишите проверяемое качество.', weight: 1 }); persist(); render(); },
+    'compare-runs': async () => { compare = { baseline: $('#compare-baseline').value, candidate: $('#compare-candidate').value, baselineSide: $('#compare-baseline-side').value, candidateSide: $('#compare-candidate-side').value, tag: $('#compare-tag').value || 'all' }; const [a, b] = await Promise.all([full(compare.baseline), full(compare.candidate)]); compareResult = compareRuns(a, b, compare); render(); }, 'compare-export': () => download('comparison.json', pretty({ config: compare, comparison: compareResult })),
+    'resume': () => control('resume'), 'pause': () => control('pause'), 'cancel': () => control('cancel'), 'retry-errors': () => control('retry-errors'), 'limits': limits,
+    'prev-review': async () => { await saveReviewNote(); reviewIndex = Math.max(0, reviewIndex - 1); render(); }, 'next-review': async () => { await saveReviewNote(); reviewIndex = Math.min(reviewCases().length - 1, reviewIndex + 1); render(); },
+    'review-scale': () => modal('Шкала для следующего прогона', area('Названия уровней, JSON-массив', 'scale-json', pretty(state.reviewScale || ['Плохо', 'Частично', 'Хорошо', 'Отлично']), 5) + btn('Сохранить шкалу', 'save-scale', 'primary'), d => { d.querySelector('[data-action="save-scale"]').onclick = safe(() => { const scale = JSON.parse(d.querySelector('#scale-json').value); if (!Array.isArray(scale) || scale.length < 2 || scale.length > 7 || scale.some(x => typeof x !== 'string' || !x.trim() || x.length > 50))
+        throw Error('От 2 до 7 названий, до 50 символов.'); state.reviewScale = scale; persist(); d.close(); }); }),
+    'save-provider': () => providerSave(), 'clear-provider': () => providerSave(true), 'test-provider': async () => { const data = await api('/provider/test', 'POST', {}); modal(data.ok ? 'Провайдер ответил' : 'Проверка не прошла', `<pre>${esc(pretty(data.result))}</pre><p class="help">Это один реальный запрос к сохранённому endpoint. Пилот поможет проверить ваши промпты и оценщики.</p>`); },
+    'import-bundle': importBundle, 'suites': () => modal('Regression suites', latestAssets('suite').map(a => `<div class="history-row"><div><b>${esc(a.name)} · v${a.version}</b><small>${a.content.length} кейсов</small></div><button class="ghost" data-use-suite="${a.id}">Открыть в датасете</button></div>`).join('') || '<p>Откройте ошибочный кейс и сохраните его в suite.</p>', d => { d.querySelectorAll('[data-use-suite]').forEach(b => b.onclick = () => { loadAsset('dataset', b.dataset.useSuite); view = 'dataset'; d.close(); render(); }); }),
+    'archive': async () => { const { runs } = await api('/runs?archived=1'); modal('Архив', runs.map(r => `<div class="history-row"><div>${esc(r.name)}</div><button class="ghost" data-restore="${r.id}">Восстановить</button></div>`).join('') || '<p>Архив пуст.</p>', d => { d.querySelectorAll('[data-restore]').forEach(b => b.onclick = safe(async () => { await api('/runs/' + b.dataset.restore, 'PATCH', { archived: false }); await refresh(); d.close(); render(); })); }); },
+};
+function bind() {
+    document.querySelectorAll('[data-view]').forEach(b => b.onclick = safe(async () => { await saveReviewNote(); view = b.dataset.view; query = ''; tag = 'all'; filter = 'all'; reviewIndex = 0; render(); }));
+    document.querySelectorAll('#app [data-action]').forEach(b => b.onclick = safe(() => actions[b.dataset.action]?.()));
+    document.querySelectorAll('[data-save-asset]').forEach(b => b.onclick = safe(() => saveAsset(b.dataset.saveAsset)));
+    document.querySelectorAll('[data-load-asset]').forEach(b => b.onchange = safe(() => loadAsset(b.dataset.loadAsset, b.value)));
+    document.querySelectorAll('[data-diff-asset]').forEach(b => b.onclick = () => assetDiff(b.dataset.diffAsset));
+    document.querySelectorAll('[data-detail]').forEach(b => b.onclick = () => detail(b.dataset.detail));
+    document.querySelectorAll('[data-rules]').forEach(b => b.onclick = () => ruleEditor(b.dataset.rules));
+    document.querySelectorAll('[data-clone]').forEach(b => b.onclick = () => { const c = state.cases.find(c => c.id === b.dataset.clone); state.cases.push({ ...structuredClone(c), id: c.id + '-' + uid().slice(0, 5) }); delete state.refs.dataset; persist(); render(); });
+    document.querySelectorAll('[data-select]').forEach(b => b.onchange = () => { if (b.checked)
+        selected.add(b.dataset.select);
+    else
+        selected.delete(b.dataset.select); const label = $('.bulk-bar span'); if (label)
+        label.textContent = 'Выбрано: ' + selected.size; });
+    if ($('#select-all'))
+        $('#select-all').onchange = e => { document.querySelectorAll('[data-select]').forEach(b => { b.checked = e.target.checked; if (b.checked)
+            selected.add(b.dataset.select);
+        else
+            selected.delete(b.dataset.select); }); $('.bulk-bar span').textContent = 'Выбрано: ' + selected.size; };
+    document.querySelectorAll('[data-field]').forEach(el => el.onchange = safe(() => { const row = el.closest('[data-row]'), id = row.dataset.row, index = state.cases.findIndex(c => c.id === id), c = structuredClone(state.cases[index]), field = el.dataset.field; c[field] = field === 'vars' ? JSON.parse(el.value) : field === 'tags' ? el.value.split(',').map(s => s.trim()).filter(Boolean) : el.value; const next = [...state.cases]; next[index] = c; state.cases = validateCases(next); if (field === 'id') {
+        row.dataset.row = c.id;
+        row.querySelectorAll('[data-rules],[data-clone],[data-select]').forEach(b => { for (const attr of ['rules', 'clone', 'select'])
+            if (b.dataset[attr])
+                b.dataset[attr] = c.id; });
+    } delete state.refs.dataset; persist(); el.classList.remove('invalid'); toast('Кейс сохранён'); }));
+    document.querySelectorAll('[data-remove-criterion]').forEach(b => b.onclick = safe(() => { collectJudge(); if (state.judge.criteria.length === 1)
+        throw Error('Нужен хотя бы один критерий.'); state.judge.criteria.splice(+b.dataset.removeCriterion, 1); persist(); render(); }));
+    document.querySelectorAll('[data-open]').forEach(b => b.onclick = safe(async () => { active = b.dataset.open; await full(active); view = 'overview'; render(); }));
+    document.querySelectorAll('[data-baseline]').forEach(b => b.onclick = () => { compare.baseline = b.dataset.baseline; compare.candidate = active; compare.baselineSide = 'b'; compare.candidateSide = 'b'; view = 'compare'; compareResult = null; render(); });
+    document.querySelectorAll('[data-archive]').forEach(b => b.onclick = safe(async () => { const r = state.runs.find(r => r.id === b.dataset.archive); if (r.cloud)
+        await api('/runs/' + r.id, 'PATCH', { archived: true }); state.runs = state.runs.filter(x => x.id !== r.id); if (active === r.id)
+        active = state.runs[0]?.id; persist(); render(); }));
+    document.querySelectorAll('[data-vote]').forEach(b => b.onclick = safe(() => vote(b.dataset.vote, b.dataset.case)));
+    if ($('#active-run'))
+        $('#active-run').onchange = safe(async (e) => { active = e.target.value; repeat = 0; reviewIndex = 0; await full(active); render(); });
+    for (const id of ['result-search', 'dataset-search'])
+        if ($('#' + id))
+            $('#' + id).onchange = e => { query = e.target.value; render(); };
+    if ($('#result-filter'))
+        $('#result-filter').onchange = e => { filter = e.target.value; render(); };
+    if ($('#result-tag'))
+        $('#result-tag').onchange = e => { tag = e.target.value; render(); };
+    if ($('#repeat'))
+        $('#repeat').onchange = e => { repeat = +e.target.value; render(); };
+    if ($('#threshold'))
+        $('#threshold').onchange = e => { const v = +e.target.value; if (v < 0 || v > 100)
+            return; state.threshold = v; persist(); render(); };
+    if ($('#blind'))
+        $('#blind').onchange = safe(async (e) => { await saveReviewNote(); blind = e.target.checked; render(); });
+    if ($('#unreviewed'))
+        $('#unreviewed').onchange = safe(async (e) => { await saveReviewNote(); unreviewed = e.target.checked; reviewIndex = 0; render(); });
+    if ($('#review-note'))
+        $('#review-note').onchange = safe(saveReviewNote);
+    if ($('#review-rating'))
+        $('#review-rating').onchange = safe(async (e) => { if (e.target.value !== '')
+            await reviewPatch({ rating: +e.target.value }, e.target.dataset.case); toast('Оценка сохранена'); });
+}
+document.addEventListener('keydown', safe(async (e) => { if (view !== 'review' || $('#modal').open || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName))
+    return; const key = e.key.toLowerCase(); if (['1', '2', '3', 's'].includes(key)) {
+    e.preventDefault();
+    const index = key === 's' ? 3 : +key - 1;
+    document.querySelectorAll('[data-vote]')[index]?.click();
+}
+else if (key === 'j' || key === 'k') {
+    e.preventDefault();
+    await actions[key === 'j' ? 'next-review' : 'prev-review']();
+} }));
+render();
+safe(async () => { server = await api('/health'); if (server.storage) {
+    provider = (await api('/provider')).provider;
+    await refresh();
+    if (!state.runs.some(r => r.id === active) || state.runs.find(r => r.cloud)) {
+        active = state.runs.find(r => r.cloud)?.id || state.runs[0]?.id;
+        await full(active);
     }
-    catch (e) {
-        toast(e.message);
-    } }); });
-}
-catch (e) {
-    toast(e.message);
-} }
+    compare.baseline = active;
+    compare.candidate = active;
+    render();
+} })();

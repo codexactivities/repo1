@@ -1,14 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { handleApi } from '../server/api.mjs';
 import { stats, gate } from '../web/core.js';
 
 function database() {
   const sql = new DatabaseSync(':memory:');
-  const migration = readFileSync(new URL('../drizzle/0000_overrated_mentor.sql', import.meta.url), 'utf8');
-  sql.exec(migration);
+  for(const file of readdirSync(new URL('../drizzle/',import.meta.url)).filter(f=>f.endsWith('.sql')).sort()) sql.exec(readFileSync(new URL('../drizzle/'+file,import.meta.url),'utf8'));
   function prepare(query, args = []) {
     return {
       bind(...values) { return prepare(query, values); },

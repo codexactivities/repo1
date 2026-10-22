@@ -1,3 +1,5 @@
+import { validateRule, evaluateRules, grade } from './graders.js';
+export { grade } from './graders.js';
 export function uid(cryptoApi = globalThis.crypto) {
     if (typeof cryptoApi.randomUUID === 'function')
         return cryptoApi.randomUUID();
@@ -13,65 +15,43 @@ export function validateCases(cases) {
         throw new Error('Нужен массив из 1–500 тестов.');
     const ids = new Set();
     return cases.map((c, i) => {
-        if (!c || typeof c.id !== 'string' || !c.id.trim() || ['__proto__', 'constructor', 'prototype'].includes(c.id) || ids.has(c.id))
+        if (!c || typeof c.id !== 'string' || !c.id.trim() || c.id.length > 200 || (['prototype', ...Object.getOwnPropertyNames(Object.prototype)].includes(c.id)) || ids.has(c.id))
             throw new Error(`Тест ${i + 1}: нужен уникальный строковый id.`);
         ids.add(c.id);
-        if (!c.vars || typeof c.vars !== 'object' || Array.isArray(c.vars) || Object.values(c.vars).some(v => !['string', 'number', 'boolean'].includes(typeof v)))
+        if (!c.vars || typeof c.vars !== 'object' || Array.isArray(c.vars) || Object.values(c.vars).some(v => !['string', 'number', 'boolean'].includes(typeof v) || typeof v==='number'&&!Number.isFinite(v)))
             throw new Error(`${c.id}: vars должен содержать строки, числа или boolean.`);
-        if (!Array.isArray(c.rules) || c.rules.some(r => !r || !['contains', 'notContains', 'exact', 'json', 'maxWords'].includes(r.type) || (['contains', 'notContains', 'exact'].includes(r.type) && (typeof r.value !== 'string' || !r.value.trim())) || (r.type === 'maxWords' && (!Number.isInteger(r.value) || r.value < 1))))
-            throw new Error(`${c.id}: неверные правила.`);
-        return { id: c.id, title: String(c.title || c.id), slice: String(c.slice || 'Общее'), vars: c.vars, rules: c.rules, reference: String(c.reference || '') };
+        if (!Array.isArray(c.rules))
+            throw new Error(`${c.id}: rules должен быть массивом.`);
+        const rules = c.rules.map(validateRule);
+        const tags = Array.isArray(c.tags) ? c.tags.map(String) : [];
+        if (tags.length > 30 || tags.some(t => t.length > 80))
+            throw Error('До 30 тегов, каждый до 80 символов.');
+        if (rules.some(r => r.type === 'reference') && !String(c.reference ?? '').trim())
+            throw Error(`${c.id}: для сравнения с эталоном нужен reference.`);
+        return { id: c.id, title: String(c.title || c.id), slice: String(c.slice || 'Общее'), tags: [...new Set(tags)], vars: c.vars, rules, reference: String(c.reference ?? '') };
     });
 }
-export function evaluate(text, rules) {
-    if (typeof text !== 'string')
-        return { pass: null, score: null, checks: [] };
-    const checks = rules.map(r => {
-        let pass = false;
-        const t = text.toLocaleLowerCase();
-        const v = String(r.value ?? '').toLocaleLowerCase();
-        if (r.type === 'contains')
-            pass = t.includes(v);
-        if (r.type === 'notContains')
-            pass = !t.includes(v);
-        if (r.type === 'exact')
-            pass = text.trim() === String(r.value).trim();
-        if (r.type === 'json') {
-            try {
-                JSON.parse(text);
-                pass = true;
-            }
-            catch {
-                pass = false;
-            }
-        }
-        if (r.type === 'maxWords')
-            pass = (text.trim() ? text.trim().split(/\s+/u).length : 0) <= r.value;
-        return { ...r, pass };
-    });
-    return { pass: checks.length ? checks.every(x => x.pass) : null, score: checks.length ? checks.filter(x => x.pass).length / checks.length : null, checks };
-}
+export const evaluate = evaluateRules;
 export function stats(run, side, slice = 'all') {
     const cases = run.cases.filter(c => slice === 'all' || c.slice === slice);
-    const cells = cases.map(c => ({ c, result: run.results[c.id]?.[side] }));
+    const cells = Array.from({ length: run.repeats || 1 }, (_, repeat) => cases.map(c => ({ c, repeat, result: (run.repetitions?.[repeat] || run.results)[c.id]?.[side] }))).flat();
     const done = cells.filter(x => typeof x.result?.text === 'string' && !x.result.error);
-    const graded = done.map(x => evaluate(x.result.text, x.c.rules)).filter(e => e.pass !== null);
+    const graded = done.map(x => grade(run, x.c, side, x.repeat)).filter(e => e.pass !== null);
     const measured = done.filter(x => Number.isFinite(x.result.latencyMs));
     const costs = done.filter(x => Number.isFinite(x.result.cost));
-    return { total: cases.length, done: done.length, graded: graded.length, passed: graded.filter(x => x.pass).length, rate: graded.length ? graded.filter(x => x.pass).length / graded.length : null, latency: measured.length ? measured.reduce((s, x) => s + x.result.latencyMs, 0) / measured.length : null, cost: costs.length ? costs.reduce((s, x) => s + x.result.cost, 0) : null };
+    return { total: cases.length * (run.repeats || 1), done: done.length, graded: graded.length, passed: graded.filter(x => x.pass).length, rate: graded.length ? graded.filter(x => x.pass).length / graded.length : null, latency: measured.length ? measured.reduce((s, x) => s + x.result.latencyMs, 0) / measured.length : null, cost: costs.length === cells.length && costs.length ? costs.reduce((s, x) => s + x.result.cost, 0) : null };
 }
 export function transition(run, c) {
-    const a = run.results[c.id]?.a, b = run.results[c.id]?.b;
-    if (a?.error || b?.error)
+    const pairs = Array.from({ length: run.repeats || 1 }, (_, i) => ({ a: grade(run, c, 'a', i), b: grade(run, c, 'b', i) }));
+    if (pairs.some(p => p.a.error || p.b.error))
         return 'error';
-    const ea = evaluate(a?.text, c.rules), eb = evaluate(b?.text, c.rules);
-    if (ea.pass === true && eb.pass === false)
+    if (pairs.some(p => p.a.pass === true && p.b.pass === false))
         return 'regression';
-    if (ea.pass === false && eb.pass === true)
+    if (pairs.some(p => p.a.pass === false && p.b.pass === true))
         return 'improvement';
-    if (eb.pass === false)
+    if (pairs.some(p => p.b.pass === false))
         return 'failure';
-    if (eb.pass === true)
+    if (pairs.every(p => p.b.pass === true))
         return 'pass';
     return 'ungraded';
 }
@@ -101,22 +81,35 @@ export function normalizeResults(data, cases) {
             if (r.text?.length > 200000)
                 throw new Error('Ответ превышает 200 000 символов.');
             out[x.id][side] = { ...(typeof r.error === 'string' ? { error: r.error } : { text: r.text }), ...Object.fromEntries(['latencyMs', 'cost'].filter(k => Number.isFinite(r[k]) && r[k] >= 0).map(k => [k, r[k]])) };
+            for (const k of ['responseId', 'finishReason', 'model', 'costSource'])
+                if (typeof r[k] === 'string')
+                    out[x.id][side][k] = r[k].slice(0, 256);
+            if (r.synthetic === true)
+                out[x.id][side].synthetic = true;
+            if (r.usage)
+                out[x.id][side].usage = Object.fromEntries(['prompt_tokens', 'completion_tokens', 'total_tokens'].filter(k => Number.isFinite(r.usage[k]) && r.usage[k] >= 0).map(k => [k, r.usage[k]]));
         }
     }
     return out;
 }
-export function csv(rows) { return '\uFEFF' + rows.map(row => row.map(v => { let s = String(v ?? ''); if (/^[=+@\-\t\r]/.test(s))
-    s = "'" + s; return '"' + s.replaceAll('"', '""') + '"'; }).join(',')).join('\r\n'); }
+export function csv(rows) {
+    return '\uFEFF' + rows.map(row => row.map(v => {
+        let s = String(v ?? '');
+        if (/^[=+@\-\t\r]/.test(s))
+            s = "'" + s;
+        return '"' + s.replaceAll('"', '""') + '"';
+    }).join(',')).join('\r\n');
+}
 export function runCsv(run) {
-    const rows = [['id', 'title', 'slice', 'a_text', 'a_pass', 'b_text', 'b_pass', 'transition', 'human_winner', 'note']];
+    const rows = [['id', 'title', 'slice', 'a_text', 'a_pass', 'b_text', 'b_pass', 'transition', 'human_winner', 'note', 'tags', 'reference', 'a_usage', 'b_usage', 'a_judge', 'b_judge', 'repetitions', 'rating']];
     for (const c of run.cases)
         rows.push([
             c.id, c.title, c.slice,
             run.results[c.id]?.a?.text ?? run.results[c.id]?.a?.error,
-            evaluate(run.results[c.id]?.a?.text, c.rules).pass,
+            grade(run, c, 'a').pass,
             run.results[c.id]?.b?.text ?? run.results[c.id]?.b?.error,
-            evaluate(run.results[c.id]?.b?.text, c.rules).pass,
-            transition(run, c), run.reviews[c.id]?.winner, run.reviews[c.id]?.note,
+            grade(run, c, 'b').pass,
+            transition(run, c), run.reviews[c.id]?.winner, run.reviews[c.id]?.note, (c.tags || []).join('|'), c.reference, JSON.stringify(run.results[c.id]?.a?.usage || null), JSON.stringify(run.results[c.id]?.b?.usage || null), JSON.stringify(run.judgments?.[0]?.[c.id]?.a || null), JSON.stringify(run.judgments?.[0]?.[c.id]?.b || null), JSON.stringify(run.repetitions?.map(r => r[c.id]) || [run.results[c.id]]), run.reviews[c.id]?.rating,
         ]);
     return csv(rows);
 }

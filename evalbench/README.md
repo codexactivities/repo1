@@ -1,101 +1,105 @@
-# EvalBench 2
+# EvalBench 3
 
-Server-backed workspace for prompt evaluations: A/B prompts, deterministic checks, regression detection, blind review, resumable runs and JSON/CSV exports. Russian interface.
+Рабочая лаборатория для промпт-инженера: датасет → версии промптов → очередь генераций и оценок → сравнение → ручная разметка → regression suite → воспроизводимый экспорт / CI.
 
-**Online app:** https://evalbench-prompt-lab.dot-punks-gp-9267.chatgpt.site
+**Приложение:** https://evalbench-prompt-lab.dot-punks-gp-9267.chatgpt.site (приватное, доступ владельца). **Исходники:** https://github.com/codexactivities/repo1/tree/main/evalbench. GitHub Pages открывает приложение; backend и D1 работают в Sites / Cloudflare, а не в Pages.
 
-**Readable source:** https://github.com/codexactivities/repo1/tree/main/evalbench
+## Что реализовано
 
-The online app is owner-private. GitHub stores the source and its Pages URL opens the hosted app. GitHub Pages itself does not execute the backend.
-
-## What now works online
-
-- The server creates a persisted run with immutable dataset/prompt snapshots and a task queue.
-- The browser advances up to two tasks concurrently. Each answer is committed to D1 before it is returned to the browser.
-- A run can be reopened after reload or from another authenticated device. Pending work resumes using **Продолжить**. Closing a tab stops scheduling new work; this is not an unattended background-job service.
-- **Проверить сервер на синтетике** executes 16 tasks on an independent eight-case fixture. Expected A: 50%; B: 62.5%; two regressions. It is explicitly labelled synthetic and never calls a real model.
-- **Выполнить на моделях** uses a server-held provider key and an HTTPS OpenAI Chat Completions-compatible endpoint. Without a configured key this action is disabled, rather than pretending to call a model.
-- Import replies from a JSON file or paste JSON. In server mode the imported run is saved in D1.
-- Reviews/comments, server-side JSON/CSV downloads, and recoverable archive/restore are supported.
-
-Dataset and prompt drafts remain browser-local. Every server run keeps its own durable copy. The old local-only workspace is retained; browser-local runs are not uploaded automatically.
-
-## Quick verification
-
-1. Open the online app and choose **Новый прогон → Проверить сервер на синтетике**.
-2. Expect 8 tests, candidate 63% (62.5% rounded), baseline 50%, +13 percentage points (12.5 rounded), and two regressions.
-3. Reload: the server run remains available. Open its answer details and download JSON/CSV.
-4. Archive the run from History, then use **Архив → Восстановить** to bring it back.
-
-See [VERIFICATION.md](VERIFICATION.md) for precise test coverage and limits.
-
-## Provider setup
-
-Hosted runtime variables are set through Sites, not GitHub, the browser, or `.openai/hosting.json`:
-
-| Variable | Purpose |
+| Задача | Где и как работает |
 | --- | --- |
-| `EVAL_API_KEY` | Secret provider API key; required for model execution |
-| `EVAL_API_URL` | Optional HTTPS Chat Completions endpoint; defaults to `https://api.openai.com/v1/chat/completions` |
-| `EVAL_MODEL` | Optional display/default model identifier |
+| Провайдер | OpenAI-compatible Chat Completions endpoint, BYOK в UI, AES-GCM на сервере, проверка одним коротким запросом, пилот первых 3 кейсов |
+| Датасет | Таблица с входами, эталонами, правилами, тегами и срезами; проверка полей; CSV / JSONL / JSON; массовые теги и правила; неизменяемые версии |
+| Промпты | System / user / few-shot, модель, JSON Schema, temperature / top_p / seed / max tokens; именованные версии; diff; фактические сообщения с подстановкой переменных |
+| Очередь | 1–8 параллельных задач, серверная пауза / продолжение / отмена, сохранение каждого ответа, повтор только ошибок, 1–5 повторов на кейс |
+| Оценка | contains, notContains, exact, json, maxWords, JSON Schema 2020-12, JSON field, числовой допуск, RE2 regex, сравнение с эталоном |
+| LLM-as-a-judge | Отдельная модель, рубрика 1–10 критериев с весами, score 0–4 с объяснением, строгая проверка JSON, порог, отдельные сохраняемые judge-задачи |
+| Сравнение | Любые сохранённые baseline/candidate, A или B, одинаковые входы / эталоны / правила / оценщики, теги, регрессии, задержка и стоимость; paired bootstrap 95% CI по кейсам; SD по повторам |
+| Ошибки | Ответы рядом, причины проверок и judge, текстовый diff, фильтры; добавление кейса в версионируемый regression suite |
+| Человек | Слепой порядок ответов, очередь неразмеченных, 1/2/3/S/J/K, комментарий, пользовательская шкала, согласие предпочтений judge / человека |
+| Бюджет | Preflight числа запросов, токенов и стоимости, пользовательские тарифы, атомарные серверные резервы и лимит запросов, usage и рассчитанная фактическая стоимость |
+| Экспорт и CI | JSON, CSV, JSONL, полный bundle с восстановлением без запросов моделей; CLI run / compare / export и ненулевой exit code при регрессиях |
 
-For OpenAI keys, use the OpenAI Developers integration's secure provisioning flow. Do not paste a key into chat or commit it. A deployment is needed after changing runtime variables.
+## Быстрый старт
 
-Then set and save valid model IDs for A/B in **Промпты** and execute a small pilot. A run sends one user message per rendered prompt, uses provider sampling defaults, has a configurable 16–2048 output-token budget (512 default), and a 35-second request timeout. Maximum 50 cases per model run. Both versions use the same server-configured provider/key. There are no automatic retries of persisted success/error results. A crashed/incomplete lease can be reclaimed after 90 seconds; in rare network-failure cases the provider may have processed an unrecorded request, so exactly-once external billing is not guaranteed.
+1. Откройте приложение → **Провайдер**. Укажите HTTPS endpoint, точное имя модели, ключ и тарифы в USD за миллион входных / выходных токенов. Сохраните. Ключ не попадает в localStorage, Git или экспорт.
+2. Нажмите **Проверить · 1 короткий запрос**. Это платный запрос к вашему провайдеру по его тарифу. Совместимость зависит от API и модели.
+3. Импортируйте / отредактируйте датасет. Сохраните версию. В CSV можно использовать JSON-колонку `vars` или плоские колонки `var.question`, `var.context`. `rules` — JSON-массив, `tags` — через `|`.
+4. Заполните A/B в **Промпты**, сохраните версии. Посмотрите отправляемые сообщения. Неподдерживаемые temperature / top_p оставьте пустыми.
+5. Настройте **Оценщики / Judge**. JSON Schema всегда является grader; отправка `response_format.json_schema` требует поддержки провайдера и отдельного переключателя.
+6. **Новый прогон** → рассчитайте объём → пилот на первых 3 кейсах → основной прогон. Укажите бюджет и лимит запросов. Для денежного лимита нужны тарифы каждой модели, включая judge.
+7. Разберите регрессии, добавьте их в suite, проведите слепую разметку и сравните с baseline. Скачайте **BUNDLE** для агента или воспроизведения.
 
-No API key is accepted from the frontend. Response IDs, finish reasons and basic token usage are retained when supplied. Monetary costs are not fabricated. There is no LLM-as-judge, provider catalog, corporate VPN proxy, Responses API, or team collaboration layer.
+Без ключа выберите **Синтетический приёмочный тест**: 8 независимых кейсов; A 50%, B 62,5%, две регрессии. При включённом judge он также синтетический и явно обозначен. Это проверка инструмента, не реальный LLM benchmark.
 
-## Source layout
+## Формат датасета
 
-| Directory | Purpose |
-| --- | --- |
-| `web/` | Readable HTML/CSS/JS frontend and pure evaluation logic |
-| `server/api.mjs` | Hosted API, D1 queue, provider calls, persistence and exports |
-| `worker/index.ts` | Worker entrypoint; preserves Sites integration |
-| `app/` | Minimal Vinext page routing to the static frontend |
-| `db/schema.ts`, `drizzle/` | D1 schema and immutable generated migrations |
-| `scripts/sync-web.mjs` | Copies authored frontend to `public/app/` for build/preview |
-| `scripts/serve.mjs` | Optional legacy local runner; no cloud D1 behavior |
-| `tests/` | Unit/integration tests, including real SQLite and mocked model adapter |
-| `examples/` | Portable datasets and independent verification fixtures |
-| `launcher/` | GitHub Pages entrypoint opening the private hosted app |
+```json
+[{"id":"refund","title":"Возврат","slice":"Политики","tags":["critical"],"vars":{"question":"Когда вернут деньги?","context":"Срок 10 дней"},"reference":"10 дней","rules":[{"type":"contains","value":"10 дней"}]}]
+```
 
-`dist/` is generated build output. Do not edit it. `public/app/` is an ignored generated copy of `web/`.
+Дополнительные правила:
 
-## Development
+```json
+[
+  {"type":"jsonSchema","schema":{"type":"object","required":["amount"],"properties":{"amount":{"type":"number"}},"additionalProperties":false}},
+  {"type":"field","path":"/status","op":"eq","value":"OK"},
+  {"type":"number","path":"amount","value":42,"tolerance":0.1},
+  {"type":"regex","pattern":"^OK$","flags":"i"},
+  {"type":"reference","mode":"json"}
+]
+```
 
-Node >=22.13, pnpm 10.32.1. Install using the maintained Sites helper or `corepack pnpm install --frozen-lockfile` in a standalone checkout. Then:
+Пример разных типов правил; они не обязаны применяться вместе к одному ответу. Все заданные правила обязательны. JSON Schema использует интерпретатор `@cfworker/json-schema`, совместимый с Workers без runtime eval. Поддержанный набор keywords проверяется явно; опечатки, внешние / рекурсивные `$ref`, `pattern` и `patternProperties` отклоняются. Для regex используйте RE2 grader (i/m/s), а не Schema pattern. Локальные нерекурсивные `$ref` поддержаны.
+
+## CLI для coding agents и CI
+
+Node >=22.13. Весь прогон использует ту же серверную очередь и те же graders, что UI.
 
 ```sh
+export EVALBENCH_URL='https://evalbench-prompt-lab.dot-punks-gp-9267.chatgpt.site'
+# Для приватного service access: путь к файлу с действующим токеном Sites.
+export EVALBENCH_TOKEN_FILE='/secure/path/sites-token'
+
+node cli/evalbench.mjs run --config examples/experiment.json --synthetic --dry-run
+node cli/evalbench.mjs run --config examples/experiment.json --synthetic --out artifacts
+# Для реальной модели замените YOUR_MODEL/YOUR_JUDGE_MODEL в конфиге, подключите провайдера в UI,
+# уберите --synthetic. Приложение не получает ключ модели из CLI.
+node cli/evalbench.mjs run --config examples/experiment.json --out artifacts
+node cli/evalbench.mjs compare --baseline BASELINE_UUID --candidate CANDIDATE_UUID --fail-on-regression --out artifacts/comparison.json
+node cli/evalbench.mjs export --run RUN_UUID --format bundle --out artifacts/experiment.bundle.json
+```
+
+Можно передать экспортированный bundle в `--config`: берётся его `config`, ответы генерируются заново. Для восстановления без вызовов модели используйте **Прогоны → Импорт эксперимента**. Exit codes: `0` успех, `1` ошибки задач / остановленная очередь или регрессия / неполное покрытие при `--fail-on-regression`, `2` ошибка конфигурации / HTTP. Токен приватного доступа не следует коммитить или передавать в аргументах команд.
+
+## Локальная разработка
+
+Полноценный frontend собирается из `web/` через esbuild. `public/app/` и `dist/` генерируются. Backend — `server/api.mjs`; Worker сохраняет существующую интеграцию Sites/Vinext. Схема D1 — `db/schema.ts`, миграции — `drizzle/`.
+
+В обычном Node-окружении с Corepack:
+
+```sh
+corepack enable
+corepack pnpm install --frozen-lockfile
 npm test
 npm run check
-npm run db:generate    # only after changing db/schema.ts
+node node_modules/typescript/bin/tsc --noEmit
 npm run dev
-npm run build
 ```
 
-The Sites skill owns managed preview and publication. Local and hosted D1 databases are separate. Apply the generated SQL migrations locally before testing the server; Sites applies them to the hosted database during publication.
+В управляемой среде Sites используйте установленный `scripts/install-dependencies.mjs`, `scripts/build-site.mjs` и supervisor `sites-preview` из skill Sites. Не заменяйте проектные wrappers. Для локальной D1 примените все SQL-миграции по порядку в локальную БД Wrangler до первого API-запроса. Генерация новой миграции: `npm run db:generate`; старые SQL не менять. Для локальной проверки BYOK задайте отдельный `EVAL_VAULT_KEY` (64 hex-символа) через игнорируемый `.dev.vars`, не используйте production key.
 
-For the dependency-free local-only frontend/runner:
+`npm run start:local` сохранён как legacy loopback HTTP adapter для старых mock-тестов (`/api/run`). Он не заменяет основной UI и D1.
 
-```sh
-npm run start:local
-```
+## Границы и интерпретация
 
-This serves `web/` at http://127.0.0.1:3000. Supply local `EVAL_API_KEY`/`EVAL_API_URL` via an ignored environment file if needed. The legacy runner does not claim hosted persistence.
+- Приложение — единое приватное пространство владельца; изоляцию доступа обеспечивает Sites. Не делайте backend публичным без отдельной модели авторизации / tenancy.
+- Ключ провайдера зашифрован AES-GCM с runtime secret `EVAL_VAULT_KEY`. Потеря этого master key потребует повторного ввода ключа. После смены endpoint старый модельный прогон блокируется, чтобы не отправить новый ключ прежнему провайдеру; верните endpoint или создайте новый прогон.
+- Очередь исполняет задачи, пока её двигает открытая вкладка или CLI. Закрытие вкладки сохраняет готовые ответы, но не создаёт фоновый планировщик.
+- Пауза / отмена не отзывают уже отправленный API-запрос. Неизвестный результат запроса после 90 секунд становится ошибкой. Повтор — только явный; провайдер может тарифицировать его снова. Exactly-once billing не обещается.
+- Денежный лимит управляет резервами приложения по введённым тарифам. Входные токены заранее оцениваются, а резерв включает запас; при неизвестном usage он сохраняется. Это не жёсткий лимит в биллинге провайдера и не его счёт. Несоответствие тарифов или необычный usage может изменить реальную цену.
+- Без правил и judge ответ не считается успешно оценённым. Ошибка API, обрезанный ответ, пропуск либо неверный JSON judge блокируют gate. Judge — вероятностный оценщик; проверяйте его на независимой человеческой разметке.
+- CI доверительного интервала характеризует заданную выборку. Малое число кейсов, зависимые кейсы или изменившаяся рубрика ограничивают выводы. Удалённые кейсы и разные оценщики не скрываются за ростом среднего качества.
+- CSV защищает от формул Excel; это может добавить `'` перед значением, начинающимся с `= + - @`. Для точного машинного round-trip используйте JSONL/bundle. Экспорт содержит ваши входы и ответы — делитесь им осознанно.
 
-## Data format and grading
-
-Dataset: array of `{id,title,slice,vars,reference,rules}` with unique IDs and scalar variables. Templates use `{{variable}}`; server execution rejects missing variables. Rules: `contains`/`notContains` (case-insensitive), `exact` (case-sensitive after trim), strict `json`, and whitespace-based `maxWords`.
-
-Response import: `[{"id":"case-id","a":{"text":"baseline"},"b":{"text":"candidate"}}]`. Error objects use `{"error":"Provider HTTP 429"}`. Optional nonnegative `latencyMs` and `cost` are supported. Missing responses and rule-free tests are ungraded.
-
-A case passes only if every rule passes. A regression is A pass → B fail. Release requires complete graded A/B coverage, B pass rate above threshold, and no regressions. Human review is independent and never overrides automatic grading. Rules are checks against declared conditions, not proof of overall correctness.
-
-## Access and privacy
-
-This is a **single-owner, private Sites workspace**. Sites dispatch enforces access before the Worker. Authorized service access and the owner use the same workspace. Do not publish this backend publicly or expand its audience without adding appropriate user-level authorization and tenancy. There is no separately scaffolded OAuth stack.
-
-API calls reject cross-origin writes, validate inputs and use prepared SQL. Secrets are server configuration only, omitted from run snapshots, client bundles and exports. Imported text is HTML-escaped. CSV guards against formula injection. Active runs can be archived and restored; there is no permanent-delete endpoint.
-
-Read [AGENTS.md](AGENTS.md) and [ARCHITECTURE.md](ARCHITECTURE.md) before editing.
+Подробнее: [ARCHITECTURE.md](ARCHITECTURE.md), [VERIFICATION.md](VERIFICATION.md), [AGENTS.md](AGENTS.md).

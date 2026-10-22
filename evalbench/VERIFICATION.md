@@ -1,88 +1,45 @@
-# Functional verification — 2026-10-16
+# Verification · v3
 
-## What existed before this verification
+Verification is separated into deterministic fixtures, mocked provider integration, browser UI, and hosted acceptance. Real provider quality is not inferred from any synthetic result.
 
-The initial 14 tests covered automatic rules, dataset/response validation, missing answers, regressions, CSV escaping and a local HTTP runner using a mocked provider. Browser checks on GitHub Pages covered the demo overview, regression filter, answer/rule detail, blind voting, vote persistence after reload, and saving prompt/test edits.
+## Automated checks
 
-This did not establish full end-to-end functionality with a real model provider. The hosted static app does not call a model API.
+**36/36 tests passed**, syntax checks, TypeScript and production build passed on 2026-10-22.
 
-## Independent synthetic pipeline
+Run `npm test`, `npm run check`, `node node_modules/typescript/bin/tsc --noEmit`, then the maintained Sites production build. Tests use real in-memory SQLite with **all** generated migrations and the production `handleApi`; they do not replace the queue/store with a UI mock.
 
-Three integration tests were added in `tests/pipeline.test.mjs`. They use a new eight-case fixture in `examples/verification.json`, independent of the built-in twelve-case demo.
+Coverage includes:
 
-The first test sends a real HTTP request to the local app server. The server renders A/B prompts and invokes its provider adapter 16 times. Only the provider's response is mocked. Returned data goes through the application's actual `normalizeResults`, evaluation/statistics, release gate, JSON serialization/restoration, and CSV export functions.
+- Legacy rule/import/CSV/gate behavior, secure UUID fallback and original independent 8-case pipeline.
+- CSV multiline/quoted fields, JSONL, scalar variables, refs/tags/rules, validation failures.
+- JSON Schema/field/number/reference/RE2 grading, invalid constraints and unsafe schema references, schema-false and simultaneous prompt/case schemas.
+- Structured system/few-shot/user rendering and generation parameter validation.
+- Strict judge criterion parsing, weighted scores, errors and pending-judge release blocking.
+- Paired comparisons, changed/missing/removed cases, evaluator mismatch, repeated measurements, bootstrap CI and human calibration.
+- AES-GCM key persistence, masked API responses, upstream-only key use, endpoint-change guard and immutable versions.
+- 64-task synthetic generation/judge/repetition lifecycle, persisted reload, pause/resume, reviews, regression suites, bundle round-trip and JSONL.
+- Mock provider 429, invalid judge JSON and selective retries without rerunning successful generations.
+- Concurrent server claims, request caps, budget reservations, unknown usage, cancel/resume and expired ambiguous calls.
+- CLI as a separate Node process against the production API over real loopback HTTP: preflight, queue, artifacts, comparisons and CI exit codes.
 
-| Check | Expected | Observed |
-| --- | --- | --- |
-| Provider-adapter calls | 16 unique A/B calls | 16 |
-| Baseline pass count | 4/8 (50%) | 4/8 (50%) |
-| Candidate pass count | 5/8 (62.5%) | 5/8 (62.5%) |
-| Regressions | 2 | 2 |
-| Gate with a 60% threshold | Blocked because of regressions | Blocked |
-| JSON round-trip | Same scores and saved human vote | Preserved |
-| CSV export | Header + eight result records | Nine records |
-| Simulated provider HTTP 429 | Error, seven completed B answers, gate pending | Matched |
-| Corrected candidate | 8/8, zero regressions, gate passes at 100% | Matched |
-| Missing baseline answer | Gate pending | Matched |
+The mock provider is a controlled fetch adapter, not a paid external LLM. Test credentials are synthetic.
 
-Case-by-case outcomes:
+## Browser QA · 2026-10-22
 
-| Case | A | B | Change |
-| --- | --- | --- | --- |
-| improve_contains | Fail | Pass | Improvement |
-| regress_exact | Pass | Fail | Regression |
-| stable_json | Pass | Pass | Pass |
-| stable_fail | Fail | Fail | Failure |
-| improve_length | Fail | Pass | Improvement |
-| stable_contains | Pass | Pass | Pass |
-| improve_json | Fail | Pass | Improvement |
-| regress_contains | Pass | Fail | Regression |
+Managed Sites preview, actual bundled browser application and local D1:
 
-Run from the `evalbench/` directory:
+- Saved immutable judge rubric v1; enabled judge.
+- Created `Browser v3 · judge and repeats`, 8 synthetic cases, A/B, two repeats, 64 jobs. Completed 64/64, no task errors; A 50%, B 62.5%, two regressions and blocked gate.
+- Opened `regress_exact`: A `OK`, B `ok`, exact-rule failure and both criterion explanations visible. Added it to regression suite v1.
+- Saved human preference/comment through the review screen; blind order is deterministic per run/case.
+- Compared A vs B: 8 paired cases, +12.5 percentage points; 95% case-bootstrap interval −37.5 to +62.5 pp, so UI correctly reported uncertainty.
+- Imported quoted CSV through the form; inspected variables, reference, tags and rules; edited the table and saved immutable dataset versions v1/v2.
+- Previewed real rendered system / user / assistant few-shot / user messages with the CSV case.
 
-```sh
-npm test
-npm run check
-```
+![Verified synthetic experiment](docs/evalbench-v3-overview.jpg)
 
-Result: **17 tests passed**, syntax checks passed. No application behavior change was needed for these cases. An incorrect value in the newly prepared corrected-answer fixture was caught by the test and corrected; it was not an application bug.
+## Hosted acceptance
 
-## Reproduce in the UI
+v2 production acceptance remains preserved: run `889ea6e5-85ca-4aa2-9db5-79f86a4ea90a`, 16 tasks, A .5 / B .625, two regressions. Persistence after one task, resume, review, CSV/JSON and archive/restore were verified on hosted D1. v2 JSON SHA256: `150325412f0c6f3bd3bf94b0c36ac9a992614273bddc5395559aeef6bbe009fe`.
 
-1. Import `examples/verification-dataset.json` on the dataset page.
-2. Create a run and import `examples/verification-responses.json`.
-3. Expect candidate success displayed as 63% (62.5% rounded), baseline 50%, delta +13 percentage points (12.5 rounded), two regressions, eight completed answers, blocked release.
-
-## Explicit limits
-
-- These pipeline tests are not browser automation of the file chooser. Full browser file-upload → export-download → file-reimport was not verified.
-- No paid request to a real model/provider was made. HTTP 429 and response payloads were simulated at the provider adapter.
-- The online version on GitHub Pages works with imported responses and manual judgments. Automatic generation requires the included local server plus a user-supplied provider API key.
-- No LLM-as-judge, cloud database, team synchronization, or background model runs are implemented.
-
-## Hosted runner update — 2026-10-20
-
-EvalBench 2 adds an actual Worker API and D1 task persistence. `tests/hosted.test.mjs` applies the generated migration to an independent SQLite database and exercises the production handler.
-
-- 21 tests pass, including the hosted queue, idempotent creation, parallel task claim, reopening from persisted state, summary grading, saved reviews, server JSON/CSV export, archive/restore, missing-key errors, cross-origin rejection and the model adapter.
-- In the real browser against the supervised Worker/D1 preview, **Новый прогон → Проверить сервер на синтетике** created and executed 16 server tasks. The UI showed A 50%, B 63% (62.5% rounded), two regressions and 8/8 completed B answers.
-- Both CSV and JSON were downloaded through their server endpoints in the browser. Reload restored the run.
-- A separate one-case dataset was entered in the JSON editor. Pasted replies A=`NO`, B=`YES` were imported, saved in D1 and graded as A 0%, B 100%, zero regressions; the release gate passed.
-- The browser exposed a preview compatibility bug (`crypto.randomUUID` unavailable on an HTTP origin). It was fixed using `crypto.getRandomValues`, with a regression test.
-
-A real paid provider call still requires a server API key. None was available in this environment or the Site runtime at the start of this update. The synthetic server execution and mocked model adapter must not be described as a real LLM call.
-
-### Production acceptance
-
-The deployed private Worker and its real hosted D1 database were checked through authorized service access from a fresh HTTP client (not browser localStorage).
-
-- URL: `https://evalbench-prompt-lab.dot-punks-gp-9267.chatgpt.site`
-- Run: `889ea6e5-85ca-4aa2-9db5-79f86a4ea90a` (`Server acceptance · 2026-10-20`, explicitly synthetic).
-- 16/16 tasks completed; A=50%, B=62.5%; two regressions.
-- After the first task, a separate read recovered the saved partial run.
-- Reviews persisted. JSON and CSV exports returned successfully; CSV contained one header and eight cases.
-- Archive → archive list → restore retained all 16 saved responses.
-- Export JSON SHA-256: `150325412f0c6f3bd3bf94b0c36ac9a992614273bddc5395559aeef6bbe009fe`.
-- Provider configuration was explicitly checked: no real API key was configured, so no real model call is claimed.
-
-Application deployment succeeded as Site version `appgver_2f8041d1a5ac8191971a6716dc1813c3` from source commit `f74a4e7840aa31f92f219154edf36231f1213beb`. The final GitHub commit additionally records this acceptance evidence.
+v3 hosted acceptance is recorded below after deployment. No real external LLM request has been made in this workspace: a provider credential must be connected in the application's Provider screen before a real pilot can verify that provider/model.
